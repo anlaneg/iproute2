@@ -310,6 +310,7 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 	if (answer == NULL)
 		n->nlmsg_flags |= NLM_F_ACK;
 
+	//发送netlink消息
 	status = sendmsg(rtnl->fd, &msg, 0);
 
 	if (status < 0) {
@@ -323,6 +324,7 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 
 	while (1) {
 		iov.iov_len = sizeof(buf);
+		//获取响应
 		status = recvmsg(rtnl->fd, &msg, 0);
 
 		if (status < 0) {

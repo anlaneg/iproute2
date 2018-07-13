@@ -391,7 +391,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req,
 				return on_off("dynamic");
 		} else if (matches(*argv, "type") == 0) {
 			NEXT_ARG();
-			*type = *argv;
+			*type = *argv;//设置类型
 			argc--; argv++;
 			break;
 		} else if (matches(*argv, "alias") == 0) {
@@ -438,7 +438,7 @@ static int iplink_modify(int cmd, unsigned int flags, int argc, char **argv)
 
 	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
 	req.n.nlmsg_flags = NLM_F_REQUEST|flags;
-	req.n.nlmsg_type = cmd;
+	req.n.nlmsg_type = cmd;//指定cmd
 	req.i.ifi_family = preferred_family;
 
 	ret = iplink_parse(argc, argv, &req, &name, &type, &link, &dev, &group);
@@ -476,11 +476,13 @@ static int iplink_modify(int cmd, unsigned int flags, int argc, char **argv)
 	ll_init_map(&rth);
 
 	if (type) {
+		//指定了link类型
 		struct rtattr *linkinfo = NLMSG_TAIL(&req.n);
 		addattr_l(&req.n, sizeof(req), IFLA_LINKINFO, NULL, 0);
 		addattr_l(&req.n, sizeof(req), IFLA_INFO_KIND, type,
 			 strlen(type));
 
+		//如果需要加载so来解决，加载相应so
 		lu = get_link_kind(type);
 		if (lu && argc) {
 			struct rtattr * data = NLMSG_TAIL(&req.n);
@@ -544,6 +546,7 @@ static int iplink_modify(int cmd, unsigned int flags, int argc, char **argv)
 		addattr_l(&req.n, sizeof(req), IFLA_IFNAME, name, len);
 	}
 
+	//与kernel进行talk
 	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0)
 		exit(2);
 
@@ -906,6 +909,7 @@ int do_iplink(int argc, char **argv)
 	if (argc > 0) {
 		if (iplink_have_newlink()) {
 			if (matches(*argv, "add") == 0)
+				//设置cmd为RTM_NEWLINK
 				return iplink_modify(RTM_NEWLINK,
 						     NLM_F_CREATE|NLM_F_EXCL,
 						     argc-1, argv+1);

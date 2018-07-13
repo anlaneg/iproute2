@@ -30,3 +30,7 @@ series
 .gdbinit
 .gdb_history
 *.gdb
+.cproject
+.project
+.settings/
+
