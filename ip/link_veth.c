@@ -17,48 +17,70 @@
 #include "utils.h"
 #include "ip_common.h"
 
+static void print_usage(FILE *f)
+{
+	printf("Usage: ip link <options> type veth [peer <options>]\n"
+	       "To get <options> type 'ip link add help'\n");
+}
+
 static void usage(void)
 {
-	printf("Usage: ip link <options> type veth "
-	       "[peer <options>]\nTo get <options> type "
-	       "'ip link add help'\n");
+	print_usage(stderr);
 }
 
 static int veth_parse_opt(struct link_util *lu, int argc, char **argv,
-			  struct nlmsghdr *hdr)
+			  struct nlmsghdr *n)
 {
-	char *name, *type, *link, *dev;
-	int err, len;
-	struct rtattr * data;
-	int group;
+	char *type = NULL;
+	int err;
+	struct rtattr *data;
+	struct ifinfomsg *ifm, *peer_ifm;
+	unsigned int ifi_flags, ifi_change, ifi_index;
 
 	if (strcmp(argv[0], "peer") != 0) {
 		usage();
 		return -1;
 	}
 
-	data = NLMSG_TAIL(hdr);
-	addattr_l(hdr, 1024, VETH_INFO_PEER, NULL, 0);
+	ifm = NLMSG_DATA(n);
+	ifi_flags = ifm->ifi_flags;
+	ifi_change = ifm->ifi_change;
+	ifi_index = ifm->ifi_index;
+	ifm->ifi_flags = 0;
+	ifm->ifi_change = 0;
+	ifm->ifi_index = 0;
 
-	hdr->nlmsg_len += sizeof(struct ifinfomsg);
+	data = addattr_nest(n, 1024, VETH_INFO_PEER);
 
-	err = iplink_parse(argc - 1, argv + 1, (struct iplink_req *)hdr,
-			   &name, &type, &link, &dev, &group);
+	n->nlmsg_len += sizeof(struct ifinfomsg);
+
+	err = iplink_parse(argc - 1, argv + 1, (struct iplink_req *)n, &type);
 	if (err < 0)
 		return err;
 
-	if (name) {
-		len = strlen(name) + 1;
-		if (len > IFNAMSIZ)
-			invarg("\"name\" too long\n", *argv);
-		addattr_l(hdr, 1024, IFLA_IFNAME, name, len);
-	}
+	if (type)
+		duparg("type", argv[err]);
 
-	data->rta_len = (void *)NLMSG_TAIL(hdr) - (void *)data;
+	peer_ifm = RTA_DATA(data);
+	peer_ifm->ifi_index = ifm->ifi_index;
+	peer_ifm->ifi_flags = ifm->ifi_flags;
+	peer_ifm->ifi_change = ifm->ifi_change;
+	ifm->ifi_flags = ifi_flags;
+	ifm->ifi_change = ifi_change;
+	ifm->ifi_index = ifi_index;
+
+	addattr_nest_end(n, data);
 	return argc - 1 - err;
+}
+
+static void veth_print_help(struct link_util *lu, int argc, char **argv,
+	FILE *f)
+{
+	print_usage(f);
 }
 
 struct link_util veth_link_util = {
 	.id = "veth",
 	.parse_opt = veth_parse_opt,
+	.print_help = veth_print_help,
 };

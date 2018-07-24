@@ -36,8 +36,7 @@
 
 #include "libnetlink.h"
 #include "utils.h"
-
-int resolve_hosts;
+#include "rt_names.h"
 
 DB	*dbase;
 char	*dbname = "/var/lib/arpd/arpd.db";
@@ -46,17 +45,16 @@ int	ifnum;
 int	*ifvec;
 char	**ifnames;
 
-struct dbkey
-{
+struct dbkey {
 	__u32	iface;
 	__u32	addr;
 };
 
-#define IS_NEG(x)	(((__u8*)(x))[0] == 0xFF)
+#define IS_NEG(x)	(((__u8 *)(x))[0] == 0xFF)
 #define NEG_TIME(x)	(((x)[2]<<24)|((x)[3]<<16)|((x)[4]<<8)|(x)[5])
-#define NEG_AGE(x)	((__u32)time(NULL) - NEG_TIME((__u8*)x))
+#define NEG_AGE(x)	((__u32)time(NULL) - NEG_TIME((__u8 *)x))
 #define NEG_VALID(x)	(NEG_AGE(x) < negative_timeout)
-#define NEG_CNT(x)	(((__u8*)(x))[1])
+#define NEG_CNT(x)	(((__u8 *)(x))[1])
 
 struct rtnl_handle rth;
 
@@ -90,22 +88,23 @@ int negative_timeout = 60;
 int no_kernel_broadcasts;
 int broadcast_rate = 1000;
 int broadcast_burst = 3000;
+int poll_timeout = 30000;
 
-void usage(void)
+static void usage(void)
 {
 	fprintf(stderr,
-"Usage: arpd [ -lkh? ] [ -a N ] [ -b dbase ] [ -B number ] [ -f file ] [ -n time ] [ -R rate ] [ interfaces ]\n");
+		"Usage: arpd [ -lkh? ] [ -a N ] [ -b dbase ] [ -B number ] [ -f file ] [ -n time ] [-p interval ] [ -R rate ] [ interfaces ]\n");
 	exit(1);
 }
 
-int handle_if(int ifindex)
+static int handle_if(int ifindex)
 {
 	int i;
 
 	if (ifnum == 0)
 		return 1;
 
-	for (i=0; i<ifnum; i++)
+	for (i = 0; i < ifnum; i++)
 		if (ifvec[i] == ifindex)
 			return 1;
 	return 0;
@@ -113,14 +112,14 @@ int handle_if(int ifindex)
 
 int sysctl_adjusted;
 
-void do_sysctl_adjustments(void)
+static void do_sysctl_adjustments(void)
 {
 	int i;
 
 	if (!ifnum)
 		return;
 
-	for (i=0; i<ifnum; i++) {
+	for (i = 0; i < ifnum; i++) {
 		char buf[128];
 		FILE *fp;
 
@@ -130,7 +129,7 @@ void do_sysctl_adjustments(void)
 				if (no_kernel_broadcasts)
 					strcpy(buf, "0\n");
 				else
-					sprintf(buf, "%d\n", active_probing>=2 ? 1 : 3-active_probing);
+					sprintf(buf, "%d\n", active_probing >= 2 ? 1 : 3-active_probing);
 				fputs(buf, fp);
 				fclose(fp);
 			}
@@ -138,7 +137,7 @@ void do_sysctl_adjustments(void)
 
 		sprintf(buf, "/proc/sys/net/ipv4/neigh/%s/app_solicit", ifnames[i]);
 		if ((fp = fopen(buf, "w")) != NULL) {
-			sprintf(buf, "%d\n", active_probing<=1 ? 1 : active_probing);
+			sprintf(buf, "%d\n", active_probing <= 1 ? 1 : active_probing);
 			fputs(buf, fp);
 			fclose(fp);
 		}
@@ -146,14 +145,14 @@ void do_sysctl_adjustments(void)
 	sysctl_adjusted = 1;
 }
 
-void undo_sysctl_adjustments(void)
+static void undo_sysctl_adjustments(void)
 {
 	int i;
 
 	if (!sysctl_adjusted)
 		return;
 
-	for (i=0; i<ifnum; i++) {
+	for (i = 0; i < ifnum; i++) {
 		char buf[128];
 		FILE *fp;
 
@@ -176,18 +175,24 @@ void undo_sysctl_adjustments(void)
 }
 
 
-int send_probe(int ifindex, __u32 addr)
+static int send_probe(int ifindex, __u32 addr)
 {
-	struct ifreq ifr;
-	struct sockaddr_in dst;
+	struct ifreq ifr = { .ifr_ifindex = ifindex };
+	struct sockaddr_in dst = {
+		.sin_family = AF_INET,
+		.sin_port = htons(1025),
+		.sin_addr.s_addr = addr,
+	};
 	socklen_t len;
 	unsigned char buf[256];
-	struct arphdr *ah = (struct arphdr*)buf;
+	struct arphdr *ah = (struct arphdr *)buf;
 	unsigned char *p = (unsigned char *)(ah+1);
-	struct sockaddr_ll sll;
+	struct sockaddr_ll sll = {
+		.sll_family = AF_PACKET,
+		.sll_ifindex = ifindex,
+		.sll_protocol = htons(ETH_P_ARP),
+	};
 
-	memset(&ifr, 0, sizeof(ifr));
-	ifr.ifr_ifindex = ifindex;
 	if (ioctl(udp_sock, SIOCGIFNAME, &ifr))
 		return -1;
 	if (ioctl(udp_sock, SIOCGIFHWADDR, &ifr))
@@ -197,13 +202,10 @@ int send_probe(int ifindex, __u32 addr)
 	if (setsockopt(udp_sock, SOL_SOCKET, SO_BINDTODEVICE, ifr.ifr_name, strlen(ifr.ifr_name)+1) < 0)
 		return -1;
 
-	dst.sin_family = AF_INET;
-	dst.sin_port = htons(1025);
-	dst.sin_addr.s_addr = addr;
-	if (connect(udp_sock, (struct sockaddr*)&dst, sizeof(dst)) < 0)
+	if (connect(udp_sock, (struct sockaddr *)&dst, sizeof(dst)) < 0)
 		return -1;
 	len = sizeof(dst);
-	if (getsockname(udp_sock, (struct sockaddr*)&dst, &len) < 0)
+	if (getsockname(udp_sock, (struct sockaddr *)&dst, &len) < 0)
 		return -1;
 
 	ah->ar_hrd = htons(ifr.ifr_hwaddr.sa_family);
@@ -216,19 +218,16 @@ int send_probe(int ifindex, __u32 addr)
 	p += ah->ar_hln;
 
 	memcpy(p, &dst.sin_addr, 4);
-	p+=4;
+	p += 4;
 
-	sll.sll_family = AF_PACKET;
 	memset(sll.sll_addr, 0xFF, sizeof(sll.sll_addr));
-	sll.sll_ifindex = ifindex;
-	sll.sll_protocol = htons(ETH_P_ARP);
 	memcpy(p, &sll.sll_addr, ah->ar_hln);
-	p+=ah->ar_hln;
+	p += ah->ar_hln;
 
 	memcpy(p, &addr, 4);
-	p+=4;
+	p += 4;
 
-	if (sendto(pset[0].fd, buf, p-buf, 0, (struct sockaddr*)&sll, sizeof(sll)) < 0)
+	if (sendto(pset[0].fd, buf, p-buf, 0, (struct sockaddr *)&sll, sizeof(sll)) < 0)
 		return -1;
 	stats.probes_sent++;
 	return 0;
@@ -236,7 +235,7 @@ int send_probe(int ifindex, __u32 addr)
 
 /* Be very tough on sending probes: 1 per second with burst of 3. */
 
-int queue_active_probe(int ifindex, __u32 addr)
+static int queue_active_probe(int ifindex, __u32 addr)
 {
 	static struct timeval prev;
 	static int buckets;
@@ -245,6 +244,7 @@ int queue_active_probe(int ifindex, __u32 addr)
 	gettimeofday(&now, NULL);
 	if (prev.tv_sec) {
 		int diff = (now.tv_sec-prev.tv_sec)*1000+(now.tv_usec-prev.tv_usec)/1000;
+
 		buckets += diff;
 	} else {
 		buckets = broadcast_burst;
@@ -260,31 +260,28 @@ int queue_active_probe(int ifindex, __u32 addr)
 	return -1;
 }
 
-int respond_to_kernel(int ifindex, __u32 addr, char *lla, int llalen)
+static int respond_to_kernel(int ifindex, __u32 addr, char *lla, int llalen)
 {
 	struct {
-		struct nlmsghdr 	n;
-		struct ndmsg 		ndm;
-		char   			buf[256];
-	} req;
-
-	memset(&req.n, 0, sizeof(req.n));
-	memset(&req.ndm, 0, sizeof(req.ndm));
-
-	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
-	req.n.nlmsg_flags = NLM_F_REQUEST;
-	req.n.nlmsg_type = RTM_NEWNEIGH;
-	req.ndm.ndm_family = AF_INET;
-	req.ndm.ndm_state = NUD_STALE;
-	req.ndm.ndm_ifindex = ifindex;
-	req.ndm.ndm_type = RTN_UNICAST;
+		struct nlmsghdr	n;
+		struct ndmsg		ndm;
+		char			buf[256];
+	} req = {
+		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
+		.n.nlmsg_flags = NLM_F_REQUEST,
+		.n.nlmsg_type = RTM_NEWNEIGH,
+		.ndm.ndm_family = AF_INET,
+		.ndm.ndm_state = NUD_STALE,
+		.ndm.ndm_ifindex = ifindex,
+		.ndm.ndm_type = RTN_UNICAST,
+	};
 
 	addattr_l(&req.n, sizeof(req), NDA_DST, &addr, 4);
 	addattr_l(&req.n, sizeof(req), NDA_LLADDR, lla, llalen);
-	return rtnl_send(&rth, (char*)&req, req.n.nlmsg_len) <= 0;
+	return rtnl_send(&rth, &req, req.n.nlmsg_len) <= 0;
 }
 
-void prepare_neg_entry(__u8 *ndata, __u32 stamp)
+static void prepare_neg_entry(__u8 *ndata, __u32 stamp)
 {
 	ndata[0] = 0xFF;
 	ndata[1] = 0;
@@ -295,11 +292,11 @@ void prepare_neg_entry(__u8 *ndata, __u32 stamp)
 }
 
 
-int do_one_request(struct nlmsghdr *n)
+static int do_one_request(struct nlmsghdr *n)
 {
 	struct ndmsg *ndm = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
-	struct rtattr * tb[NDA_MAX+1];
+	struct rtattr *tb[NDA_MAX+1];
 	struct dbkey key;
 	DBT dbkey, dbdat;
 	int do_acct = 0;
@@ -402,6 +399,7 @@ int do_one_request(struct nlmsghdr *n)
 			    !IS_NEG(dbdat.data) ||
 			    !NEG_VALID(dbdat.data)) {
 				__u8 ndata[6];
+
 				stats.kern_neg++;
 				prepare_neg_entry(ndata, time(NULL));
 				dbdat.data = ndata;
@@ -424,26 +422,28 @@ int do_one_request(struct nlmsghdr *n)
 	return 0;
 }
 
-void load_initial_table(void)
+static void load_initial_table(void)
 {
-	rtnl_wilddump_request(&rth, AF_INET, RTM_GETNEIGH);
+	if (rtnl_wilddump_request(&rth, AF_INET, RTM_GETNEIGH) < 0) {
+		perror("dump request failed");
+		exit(1);
+	}
+
 }
 
-void get_kern_msg(void)
+static void get_kern_msg(void)
 {
 	int status;
 	struct nlmsghdr *h;
-	struct sockaddr_nl nladdr;
+	struct sockaddr_nl nladdr = {};
 	struct iovec iov;
 	char   buf[8192];
 	struct msghdr msg = {
-		(void*)&nladdr, sizeof(nladdr),
+		(void *)&nladdr, sizeof(nladdr),
 		&iov,	1,
 		NULL,	0,
 		0
 	};
-
-	memset(&nladdr, 0, sizeof(nladdr));
 
 	iov.iov_base = buf;
 	iov.iov_len = sizeof(buf);
@@ -459,7 +459,7 @@ void get_kern_msg(void)
 	if (nladdr.nl_pid)
 		return;
 
-	for (h = (struct nlmsghdr*)buf; status >= sizeof(*h); ) {
+	for (h = (struct nlmsghdr *)buf; status >= sizeof(*h); ) {
 		int len = h->nlmsg_len;
 		int l = len - sizeof(*h);
 
@@ -470,23 +470,23 @@ void get_kern_msg(void)
 			return;
 
 		status -= NLMSG_ALIGN(len);
-		h = (struct nlmsghdr*)((char*)h + NLMSG_ALIGN(len));
+		h = (struct nlmsghdr *)((char *)h + NLMSG_ALIGN(len));
 	}
 }
 
 /* Receive gratuitous ARP messages and store them, that's all. */
-void get_arp_pkt(void)
+static void get_arp_pkt(void)
 {
 	unsigned char buf[1024];
 	struct sockaddr_ll sll;
 	socklen_t sll_len = sizeof(sll);
-	struct arphdr *a = (struct arphdr*)buf;
+	struct arphdr *a = (struct arphdr *)buf;
 	struct dbkey key;
 	DBT dbkey, dbdat;
 	int n;
 
 	n = recvfrom(pset[0].fd, buf, sizeof(buf), MSG_DONTWAIT,
-		     (struct sockaddr*)&sll, &sll_len);
+		     (struct sockaddr *)&sll, &sll_len);
 	if (n < 0) {
 		if (errno != EINTR && errno != EAGAIN)
 			syslog(LOG_ERR, "recvfrom: %m");
@@ -508,7 +508,7 @@ void get_arp_pkt(void)
 		return;
 
 	key.iface = sll.sll_ifindex;
-	memcpy(&key.addr, (char*)(a+1) + a->ar_hln, 4);
+	memcpy(&key.addr, (char *)(a+1) + a->ar_hln, 4);
 
 	/* DAD message, ignore. */
 	if (key.addr == 0)
@@ -530,12 +530,10 @@ void get_arp_pkt(void)
 	dbase->put(dbase, &dbkey, &dbdat, 0);
 }
 
-void catch_signal(int sig, void (*handler)(int))
+static void catch_signal(int sig, void (*handler)(int))
 {
-	struct sigaction sa;
+	struct sigaction sa = { .sa_handler = handler };
 
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = handler;
 #ifdef SA_INTERRUPT
 	sa.sa_flags = SA_INTERRUPT;
 #endif
@@ -546,21 +544,21 @@ void catch_signal(int sig, void (*handler)(int))
 sigjmp_buf env;
 volatile int in_poll;
 
-void sig_exit(int signo)
+static void sig_exit(int signo)
 {
 	do_exit = 1;
 	if (in_poll)
 		siglongjmp(env, 1);
 }
 
-void sig_sync(int signo)
+static void sig_sync(int signo)
 {
 	do_sync = 1;
 	if (in_poll)
 		siglongjmp(env, 1);
 }
 
-void sig_stats(int signo)
+static void sig_stats(int signo)
 {
 	do_sync = 1;
 	do_stats = 1;
@@ -568,7 +566,7 @@ void sig_stats(int signo)
 		siglongjmp(env, 1);
 }
 
-void send_stats(void)
+static void send_stats(void)
 {
 	syslog(LOG_INFO, "arp_rcv: n%lu c%lu app_rcv: tot %lu hits %lu bad %lu neg %lu sup %lu",
 	       stats.arp_new, stats.arp_change,
@@ -591,9 +589,9 @@ int main(int argc, char **argv)
 	int do_list = 0;
 	char *do_load = NULL;
 
-	while ((opt = getopt(argc, argv, "h?b:lf:a:n:kR:B:")) != EOF) {
+	while ((opt = getopt(argc, argv, "h?b:lf:a:n:p:kR:B:")) != EOF) {
 		switch (opt) {
-	        case 'b':
+		case 'b':
 			dbname = optarg;
 			break;
 		case 'f':
@@ -614,6 +612,12 @@ int main(int argc, char **argv)
 			break;
 		case 'k':
 			no_kernel_broadcasts = 1;
+			break;
+		case 'p':
+			if ((poll_timeout = 1000 * strtod(optarg, NULL)) < 100) {
+				fprintf(stderr, "Invalid poll timeout\n");
+				exit(-1);
+			}
 			break;
 		case 'R':
 			if ((broadcast_rate = atoi(optarg)) <= 0 ||
@@ -653,15 +657,16 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 
-        if (ifnum) {
+	if (ifnum) {
 		int i;
-		struct ifreq ifr;
-		memset(&ifr, 0, sizeof(ifr));
-		for (i=0; i<ifnum; i++) {
-			strncpy(ifr.ifr_name, ifnames[i], IFNAMSIZ);
+		struct ifreq ifr = {};
+
+		for (i = 0; i < ifnum; i++) {
+			if (get_ifname(ifr.ifr_name, ifnames[i]))
+				invarg("not a valid ifname", ifnames[i]);
 			if (ioctl(udp_sock, SIOCGIFINDEX, &ifr)) {
 				perror("ioctl(SIOCGIFINDEX)");
-				exit(-1);;
+				exit(-1);
 			}
 			ifvec[i] = ifr.ifr_ifindex;
 		}
@@ -690,7 +695,7 @@ int main(int argc, char **argv)
 		}
 
 		buf[sizeof(buf)-1] = 0;
-		while (fgets(buf, sizeof(buf)-1, fp)) {
+		while (fgets(buf, sizeof(buf), fp)) {
 			__u8 b1[6];
 			char ipbuf[128];
 			char macbuf[128];
@@ -704,13 +709,12 @@ int main(int argc, char **argv)
 			}
 			if (strncmp(macbuf, "FAILED:", 7) == 0)
 				continue;
-			if (!inet_aton(ipbuf, (struct in_addr*)&k.addr)) {
+			if (!inet_aton(ipbuf, (struct in_addr *)&k.addr)) {
 				fprintf(stderr, "Invalid IP address: \"%s\"\n", ipbuf);
 				goto do_abort;
 			}
 
-			dbdat.data = hexstring_a2n(macbuf, b1, 6);
-			if (dbdat.data == NULL)
+			if (ll_addr_a2n((char *) b1, 6, macbuf) != 6)
 				goto do_abort;
 			dbdat.size = 6;
 
@@ -726,20 +730,23 @@ int main(int argc, char **argv)
 
 	if (do_list) {
 		DBT dbkey, dbdat;
+
 		printf("%-8s %-15s %s\n", "#Ifindex", "IP", "MAC");
 		while (dbase->seq(dbase, &dbkey, &dbdat, R_NEXT) == 0) {
 			struct dbkey *key = dbkey.data;
+
 			if (handle_if(key->iface)) {
 				if (!IS_NEG(dbdat.data)) {
 					char b1[18];
+
 					printf("%-8d %-15s %s\n",
 					       key->iface,
-					       inet_ntoa(*(struct in_addr*)&key->addr),
-					       hexstring_n2a(dbdat.data, 6, b1, 18));
+					       inet_ntoa(*(struct in_addr *)&key->addr),
+					       ll_addr_n2a(dbdat.data, 6, ARPHRD_ETHER, b1, 18));
 				} else {
 					printf("%-8d %-15s FAILED: %dsec ago\n",
 					       key->iface,
-					       inet_ntoa(*(struct in_addr*)&key->addr),
+					       inet_ntoa(*(struct in_addr *)&key->addr),
 					       NEG_AGE(dbdat.data));
 				}
 			}
@@ -756,12 +763,13 @@ int main(int argc, char **argv)
 	}
 
 	if (1) {
-		struct sockaddr_ll sll;
-		memset(&sll, 0, sizeof(sll));
-		sll.sll_family = AF_PACKET;
-		sll.sll_protocol = htons(ETH_P_ARP);
-		sll.sll_ifindex = (ifnum == 1 ? ifvec[0] : 0);
-		if (bind(pset[0].fd, (struct sockaddr*)&sll, sizeof(sll)) < 0) {
+		struct sockaddr_ll sll = {
+			.sll_family = AF_PACKET,
+			.sll_protocol = htons(ETH_P_ARP),
+			.sll_ifindex = (ifnum == 1 ? ifvec[0] : 0),
+		};
+
+		if (bind(pset[0].fd, (struct sockaddr *)&sll, sizeof(sll)) < 0) {
 			perror("bind");
 			goto do_abort;
 		}
@@ -807,7 +815,7 @@ int main(int argc, char **argv)
 		}
 		if (do_stats)
 			send_stats();
-		if (poll(pset, 2, 30000) > 0) {
+		if (poll(pset, 2, poll_timeout) > 0) {
 			in_poll = 0;
 			if (pset[0].revents&EVENTS)
 				get_arp_pkt();

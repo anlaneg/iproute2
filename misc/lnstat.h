@@ -1,7 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LNSTAT_H
 #define _LNSTAT_H
 
 #include <limits.h>
+#include <sys/select.h>
 
 #define LNSTAT_VERSION "0.02 041002"
 

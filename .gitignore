@@ -1,5 +1,7 @@
-static-syms.h
+# locally generated
 Config
+static-syms.h
+config.*
 *.o
 *.a
 *.so
@@ -9,6 +11,7 @@ Config
 # cscope
 cscope.*
 ncscope.*
+tags
 TAGS
 
 # git files that we don't want to ignore even it they are dot-files
@@ -34,3 +37,8 @@ series
 .project
 .settings/
 
+# tests
+testsuite/results
+testsuite/iproute2/iproute2-this
+testsuite/tools/generate_nlmsg
+testsuite/tests/ip/link/dev_wo_vf_rate.nl

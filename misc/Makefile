@@ -1,30 +1,37 @@
+# SPDX-License-Identifier: GPL-2.0
 SSOBJ=ss.o ssfilter.o
 LNSTATOBJ=lnstat.o lnstat_util.o
 
-TARGETS=ss nstat ifstat rtacct arpd lnstat
+TARGETS=ss nstat ifstat rtacct lnstat
 
-include ../Config
+include ../config.mk
+
+ifeq ($(HAVE_BERKELEY_DB),y)
+	TARGETS += arpd
+endif
 
 all: $(TARGETS)
 
-ss: $(SSOBJ) $(LIBUTIL)
+ss: $(SSOBJ)
+	$(QUIET_LINK)$(CC) $^ $(LDFLAGS) $(LDLIBS) -o $@
 
 nstat: nstat.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o nstat nstat.c -lm
+	$(QUIET_CC)$(CC) $(CFLAGS) $(LDFLAGS) -o nstat nstat.c $(LDLIBS) -lm
 
 ifstat: ifstat.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o ifstat ifstat.c $(LIBNETLINK) -lm
+	$(QUIET_CC)$(CC) $(CFLAGS) $(LDFLAGS) -o ifstat ifstat.c $(LDLIBS) -lm
 
 rtacct: rtacct.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o rtacct rtacct.c $(LIBNETLINK) -lm
+	$(QUIET_CC)$(CC) $(CFLAGS) $(LDFLAGS) -o rtacct rtacct.c $(LDLIBS) -lm
 
 arpd: arpd.c
-	$(CC) $(CFLAGS) -I$(DBM_INCLUDE) $(LDFLAGS) -o arpd arpd.c $(LIBNETLINK) -ldb -lpthread
+	$(QUIET_CC)$(CC) $(CFLAGS) -I$(DBM_INCLUDE) $(LDFLAGS) -o arpd arpd.c $(LDLIBS) -ldb
 
 ssfilter.c: ssfilter.y
-	bison ssfilter.y -o ssfilter.c
+	$(QUIET_YACC)bison ssfilter.y -o ssfilter.c
 
 lnstat: $(LNSTATOBJ)
+	$(QUIET_LINK)$(CC) $^ $(LDFLAGS) $(LDLIBS) -o $@
 
 install: all
 	install -m 0755 $(TARGETS) $(DESTDIR)$(SBINDIR)

@@ -1,21 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #include <errno.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <netinet/in.h>
 
 #include "utils.h"
-
-static u_int32_t hexget(char c)
-{
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= '0' && c <= '9')
-		return c - '0';
-
-	return 0xf0;
-}
 
 static int ipx_getnet(u_int32_t *net, const char *str)
 {
@@ -24,7 +14,7 @@ static int ipx_getnet(u_int32_t *net, const char *str)
 
 	for(i = 0; *str && (i < 8); i++) {
 
-		if ((tmp = hexget(*str)) & 0xf0) {
+		if ((tmp = get_hex(*str)) == -1) {
 			if (*str == '.')
 				return 0;
 			else
@@ -48,11 +38,11 @@ static int ipx_getnode(u_int8_t *node, const char *str)
 	u_int32_t tmp;
 
 	for(i = 0; i < 6; i++) {
-		if ((tmp = hexget(*str++)) & 0xf0)
+		if ((tmp = get_hex(*str++)) == -1)
 			return -1;
 		node[i] = (u_int8_t)tmp;
 		node[i] <<= 4;
-		if ((tmp = hexget(*str++)) & 0xf0)
+		if ((tmp = get_hex(*str++)) == -1)
 			return -1;
 		node[i] |= (u_int8_t)tmp;
 		if (*str == ':')

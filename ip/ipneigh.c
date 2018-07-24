@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/time.h>
@@ -24,6 +23,7 @@
 #include "rt_names.h"
 #include "utils.h"
 #include "ip_common.h"
+#include "json_print.h"
 
 #define NUD_VALID	(NUD_PERMANENT|NUD_NOARP|NUD_REACHABLE|NUD_PROBE|NUD_STALE|NUD_DELAY)
 #define MAX_ROUNDS	10
@@ -31,7 +31,7 @@
 static struct
 {
 	int family;
-        int index;
+	int index;
 	int state;
 	int unused_only;
 	inet_prefix pfx;
@@ -39,20 +39,23 @@ static struct
 	char *flushb;
 	int flushp;
 	int flushe;
+	int master;
 } filter;
 
 static void usage(void) __attribute__((noreturn));
 
 static void usage(void)
 {
-	fprintf(stderr, "Usage: ip neigh { add | del | change | replace } { ADDR [ lladdr LLADDR ]\n"
-		        "          [ nud { permanent | noarp | stale | reachable } ]\n"
-		        "          | proxy ADDR } [ dev DEV ]\n");
-	fprintf(stderr, "       ip neigh {show|flush} [ to PREFIX ] [ dev DEV ] [ nud STATE ]\n");
+	fprintf(stderr, "Usage: ip neigh { add | del | change | replace }\n"
+			"                { ADDR [ lladdr LLADDR ] [ nud STATE ] | proxy ADDR } [ dev DEV ]\n");
+	fprintf(stderr, "       ip neigh { show | flush } [ proxy ] [ to PREFIX ] [ dev DEV ] [ nud STATE ]\n");
+	fprintf(stderr, "                                 [ vrf NAME ]\n\n");
+	fprintf(stderr, "STATE := { permanent | noarp | stale | reachable | none |\n"
+			"           incomplete | delay | probe | failed }\n");
 	exit(-1);
 }
 
-int nud_state_a2n(unsigned *state, char *arg)
+static int nud_state_a2n(unsigned int *state, const char *arg)
 {
 	if (matches(arg, "permanent") == 0)
 		*state = NUD_PERMANENT;
@@ -75,7 +78,7 @@ int nud_state_a2n(unsigned *state, char *arg)
 	else {
 		if (get_unsigned(state, arg, 0))
 			return -1;
-		if (*state>=0x100 || (*state&((*state)-1)))
+		if (*state >= 0x100 || (*state&((*state)-1)))
 			return -1;
 	}
 	return 0;
@@ -95,23 +98,22 @@ static int flush_update(void)
 static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 {
 	struct {
-		struct nlmsghdr 	n;
-		struct ndmsg 		ndm;
-		char   			buf[256];
-	} req;
-	char  *d = NULL;
+		struct nlmsghdr	n;
+		struct ndmsg		ndm;
+		char			buf[256];
+	} req = {
+		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
+		.n.nlmsg_flags = NLM_F_REQUEST | flags,
+		.n.nlmsg_type = cmd,
+		.ndm.ndm_family = preferred_family,
+		.ndm.ndm_state = NUD_PERMANENT,
+	};
+	char  *dev = NULL;
 	int dst_ok = 0;
+	int dev_ok = 0;
 	int lladdr_ok = 0;
-	char * lla = NULL;
+	char *lla = NULL;
 	inet_prefix dst;
-
-	memset(&req, 0, sizeof(req));
-
-	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
-	req.n.nlmsg_flags = NLM_F_REQUEST|flags;
-	req.n.nlmsg_type = cmd;
-	req.ndm.ndm_family = preferred_family;
-	req.ndm.ndm_state = NUD_PERMANENT;
 
 	while (argc > 0) {
 		if (matches(*argv, "lladdr") == 0) {
@@ -121,7 +123,8 @@ static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 			lla = *argv;
 			lladdr_ok = 1;
 		} else if (strcmp(*argv, "nud") == 0) {
-			unsigned state;
+			unsigned int state;
+
 			NEXT_ARG();
 			if (nud_state_a2n(&state, *argv))
 				invarg("nud state is bad", *argv);
@@ -134,10 +137,12 @@ static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 				duparg("address", *argv);
 			get_addr(&dst, *argv, preferred_family);
 			dst_ok = 1;
+			dev_ok = 1;
 			req.ndm.ndm_flags |= NTF_PROXY;
 		} else if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
-			d = *argv;
+			dev = *argv;
+			dev_ok = 1;
 		} else {
 			if (strcmp(*argv, "to") == 0) {
 				NEXT_ARG();
@@ -152,44 +157,91 @@ static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 		}
 		argc--; argv++;
 	}
-	if (d == NULL || !dst_ok || dst.family == AF_UNSPEC) {
+	if (!dev_ok || !dst_ok || dst.family == AF_UNSPEC) {
 		fprintf(stderr, "Device and destination are required arguments.\n");
 		exit(-1);
 	}
 	req.ndm.ndm_family = dst.family;
-	addattr_l(&req.n, sizeof(req), NDA_DST, &dst.data, dst.bytelen);
+	if (addattr_l(&req.n, sizeof(req), NDA_DST, &dst.data, dst.bytelen) < 0)
+		return -1;
 
 	if (lla && strcmp(lla, "null")) {
 		char llabuf[20];
 		int l;
 
 		l = ll_addr_a2n(llabuf, sizeof(llabuf), lla);
-		addattr_l(&req.n, sizeof(req), NDA_LLADDR, llabuf, l);
+		if (l < 0)
+			return -1;
+
+		if (addattr_l(&req.n, sizeof(req), NDA_LLADDR, llabuf, l) < 0)
+			return -1;
 	}
 
 	ll_init_map(&rth);
 
-	if ((req.ndm.ndm_ifindex = ll_name_to_index(d)) == 0) {
-		fprintf(stderr, "Cannot find device \"%s\"\n", d);
-		return -1;
+	if (dev) {
+		req.ndm.ndm_ifindex = ll_name_to_index(dev);
+		if (!req.ndm.ndm_ifindex)
+			return nodev(dev);
 	}
 
-	if (rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0)
+	if (rtnl_talk(&rth, &req.n, NULL) < 0)
 		exit(2);
 
 	return 0;
 }
 
+static void print_cacheinfo(const struct nda_cacheinfo *ci)
+{
+	static int hz;
+
+	if (!hz)
+		hz = get_user_hz();
+
+	if (ci->ndm_refcnt)
+		print_uint(PRINT_ANY, "refcnt",
+				" ref %u", ci->ndm_refcnt);
+
+	print_uint(PRINT_ANY, "used", " used %u", ci->ndm_used / hz);
+	print_uint(PRINT_ANY, "confirmed", "/%u", ci->ndm_confirmed / hz);
+	print_uint(PRINT_ANY, "updated", "/%u", ci->ndm_updated / hz);
+}
+
+static void print_neigh_state(unsigned int nud)
+{
+
+	open_json_array(PRINT_JSON,
+			is_json_context() ?  "state" : "");
+
+#define PRINT_FLAG(f)						\
+	if (nud & NUD_##f) {					\
+		nud &= ~NUD_##f;				\
+		print_string(PRINT_ANY, NULL, " %s", #f);	\
+	}
+
+	PRINT_FLAG(INCOMPLETE);
+	PRINT_FLAG(REACHABLE);
+	PRINT_FLAG(STALE);
+	PRINT_FLAG(DELAY);
+	PRINT_FLAG(PROBE);
+	PRINT_FLAG(FAILED);
+	PRINT_FLAG(NOARP);
+	PRINT_FLAG(PERMANENT);
+#undef PRINT_FLAG
+
+	close_json_array(PRINT_JSON, NULL);
+}
 
 int print_neigh(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 {
-	FILE *fp = (FILE*)arg;
+	FILE *fp = (FILE *)arg;
 	struct ndmsg *r = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
-	struct rtattr * tb[NDA_MAX+1];
-	char abuf[256];
+	struct rtattr *tb[NDA_MAX+1];
+	static int logit = 1;
 
-	if (n->nlmsg_type != RTM_NEWNEIGH && n->nlmsg_type != RTM_DELNEIGH) {
+	if (n->nlmsg_type != RTM_NEWNEIGH && n->nlmsg_type != RTM_DELNEIGH &&
+	    n->nlmsg_type != RTM_GETNEIGH) {
 		fprintf(stderr, "Not RTM_NEWNEIGH: %08x %08x %08x\n",
 			n->nlmsg_len, n->nlmsg_type, n->nlmsg_flags);
 
@@ -209,113 +261,135 @@ int print_neigh(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	if (filter.index && filter.index != r->ndm_ifindex)
 		return 0;
 	if (!(filter.state&r->ndm_state) &&
+	    !(r->ndm_flags & NTF_PROXY) &&
 	    (r->ndm_state || !(filter.state&0x100)) &&
-             (r->ndm_family != AF_DECnet))
+	    (r->ndm_family != AF_DECnet))
 		return 0;
+
+	if (filter.master && !(n->nlmsg_flags & NLM_F_DUMP_FILTERED)) {
+		if (logit) {
+			logit = 0;
+			fprintf(fp,
+				"\nWARNING: Kernel does not support filtering by master device\n\n");
+		}
+	}
 
 	parse_rtattr(tb, NDA_MAX, NDA_RTA(r), n->nlmsg_len - NLMSG_LENGTH(sizeof(*r)));
 
-	if (tb[NDA_DST]) {
-		if (filter.pfx.family) {
-			inet_prefix dst;
-			memset(&dst, 0, sizeof(dst));
-			dst.family = r->ndm_family;
-			memcpy(&dst.data, RTA_DATA(tb[NDA_DST]), RTA_PAYLOAD(tb[NDA_DST]));
-			if (inet_addr_match(&dst, &filter.pfx, filter.pfx.bitlen))
-				return 0;
-		}
-	}
+	if (inet_addr_match_rta(&filter.pfx, tb[NDA_DST]))
+		return 0;
+
 	if (filter.unused_only && tb[NDA_CACHEINFO]) {
 		struct nda_cacheinfo *ci = RTA_DATA(tb[NDA_CACHEINFO]);
+
 		if (ci->ndm_refcnt)
 			return 0;
 	}
 
 	if (filter.flushb) {
 		struct nlmsghdr *fn;
+
 		if (NLMSG_ALIGN(filter.flushp) + n->nlmsg_len > filter.flushe) {
 			if (flush_update())
 				return -1;
 		}
-		fn = (struct nlmsghdr*)(filter.flushb + NLMSG_ALIGN(filter.flushp));
+		fn = (struct nlmsghdr *)(filter.flushb + NLMSG_ALIGN(filter.flushp));
 		memcpy(fn, n, n->nlmsg_len);
 		fn->nlmsg_type = RTM_DELNEIGH;
 		fn->nlmsg_flags = NLM_F_REQUEST;
 		fn->nlmsg_seq = ++rth.seq;
-		filter.flushp = (((char*)fn) + n->nlmsg_len) - filter.flushb;
+		filter.flushp = (((char *)fn) + n->nlmsg_len) - filter.flushb;
 		filter.flushed++;
 		if (show_stats < 2)
 			return 0;
 	}
 
+	open_json_object(NULL);
+	if (n->nlmsg_type == RTM_DELNEIGH)
+		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
+	else if (n->nlmsg_type == RTM_GETNEIGH)
+		print_null(PRINT_ANY, "miss", "%s ", "miss");
+
 	if (tb[NDA_DST]) {
-		fprintf(fp, "%s ",
-			format_host(r->ndm_family,
-				    RTA_PAYLOAD(tb[NDA_DST]),
-				    RTA_DATA(tb[NDA_DST]),
-				    abuf, sizeof(abuf)));
+		const char *dst;
+
+		dst = format_host_rta(r->ndm_family, tb[NDA_DST]);
+		print_color_string(PRINT_ANY,
+				   ifa_family_color(r->ndm_family),
+				   "dst", "%s ", dst);
 	}
-	if (!filter.index && r->ndm_ifindex)
-		fprintf(fp, "dev %s ", ll_index_to_name(r->ndm_ifindex));
+
+	if (!filter.index && r->ndm_ifindex) {
+		if (!is_json_context())
+			fprintf(fp, "dev ");
+
+		print_color_string(PRINT_ANY, COLOR_IFNAME,
+				   "dev", "%s ",
+				   ll_index_to_name(r->ndm_ifindex));
+	}
+
 	if (tb[NDA_LLADDR]) {
+		const char *lladdr;
 		SPRINT_BUF(b1);
-		fprintf(fp, "lladdr %s", ll_addr_n2a(RTA_DATA(tb[NDA_LLADDR]),
-					      RTA_PAYLOAD(tb[NDA_LLADDR]),
-					      ll_index_to_type(r->ndm_ifindex),
-					      b1, sizeof(b1)));
-	}
-	if (r->ndm_flags & NTF_ROUTER) {
-		fprintf(fp, " router");
-	}
-	if (tb[NDA_CACHEINFO] && show_stats) {
-		struct nda_cacheinfo *ci = RTA_DATA(tb[NDA_CACHEINFO]);
-		int hz = get_user_hz();
 
-		if (ci->ndm_refcnt)
-			printf(" ref %d", ci->ndm_refcnt);
-		fprintf(fp, " used %d/%d/%d", ci->ndm_used/hz,
-		       ci->ndm_confirmed/hz, ci->ndm_updated/hz);
+		lladdr = ll_addr_n2a(RTA_DATA(tb[NDA_LLADDR]),
+				     RTA_PAYLOAD(tb[NDA_LLADDR]),
+				     ll_index_to_type(r->ndm_ifindex),
+				     b1, sizeof(b1));
+
+		if (!is_json_context())
+			fprintf(fp, "lladdr ");
+
+		print_color_string(PRINT_ANY, COLOR_MAC,
+				   "lladdr", "%s", lladdr);
 	}
 
-	if (tb[NDA_PROBES] && show_stats) {
-		__u32 p = *(__u32 *) RTA_DATA(tb[NDA_PROBES]);
-		fprintf(fp, " probes %u", p);
+	if (r->ndm_flags & NTF_ROUTER)
+		print_null(PRINT_ANY, "router", " %s", "router");
+
+	if (r->ndm_flags & NTF_PROXY)
+		print_null(PRINT_ANY, "proxy", " %s", "proxy");
+
+	if (show_stats) {
+		if (tb[NDA_CACHEINFO])
+			print_cacheinfo(RTA_DATA(tb[NDA_CACHEINFO]));
+
+		if (tb[NDA_PROBES])
+			print_uint(PRINT_ANY, "probes", " probes %u",
+				   rta_getattr_u32(tb[NDA_PROBES]));
 	}
 
-	if (r->ndm_state) {
-		int nud = r->ndm_state;
-		fprintf(fp, " ");
+	if (r->ndm_state)
+		print_neigh_state(r->ndm_state);
 
-#define PRINT_FLAG(f) if (nud & NUD_##f) { \
-	nud &= ~NUD_##f; fprintf(fp, #f "%s", nud ? "," : ""); }
-		PRINT_FLAG(INCOMPLETE);
-		PRINT_FLAG(REACHABLE);
-		PRINT_FLAG(STALE);
-		PRINT_FLAG(DELAY);
-		PRINT_FLAG(PROBE);
-		PRINT_FLAG(FAILED);
-		PRINT_FLAG(NOARP);
-		PRINT_FLAG(PERMANENT);
-#undef PRINT_FLAG
-	}
-	fprintf(fp, "\n");
+	print_string(PRINT_FP, NULL, "\n", "");
+	close_json_object();
+	fflush(stdout);
 
-	fflush(fp);
 	return 0;
 }
 
-void ipneigh_reset_filter()
+void ipneigh_reset_filter(int ifindex)
 {
 	memset(&filter, 0, sizeof(filter));
 	filter.state = ~0;
+	filter.index = ifindex;
 }
 
-int do_show_or_flush(int argc, char **argv, int flush)
+static int do_show_or_flush(int argc, char **argv, int flush)
 {
+	struct {
+		struct nlmsghdr	n;
+		struct ndmsg		ndm;
+		char			buf[256];
+	} req = {
+		.n.nlmsg_type = RTM_GETNEIGH,
+		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
+	};
 	char *filter_dev = NULL;
 	int state_given = 0;
 
-	ipneigh_reset_filter();
+	ipneigh_reset_filter(0);
 
 	if (!filter.family)
 		filter.family = preferred_family;
@@ -335,10 +409,31 @@ int do_show_or_flush(int argc, char **argv, int flush)
 			if (filter_dev)
 				duparg("dev", *argv);
 			filter_dev = *argv;
+		} else if (strcmp(*argv, "master") == 0) {
+			int ifindex;
+
+			NEXT_ARG();
+			ifindex = ll_name_to_index(*argv);
+			if (!ifindex)
+				invarg("Device does not exist\n", *argv);
+			addattr32(&req.n, sizeof(req), NDA_MASTER, ifindex);
+			filter.master = ifindex;
+		} else if (strcmp(*argv, "vrf") == 0) {
+			int ifindex;
+
+			NEXT_ARG();
+			ifindex = ll_name_to_index(*argv);
+			if (!ifindex)
+				invarg("Not a valid VRF name\n", *argv);
+			if (!name_is_vrf(*argv))
+				invarg("Not a valid VRF name\n", *argv);
+			addattr32(&req.n, sizeof(req), NDA_MASTER, ifindex);
+			filter.master = ifindex;
 		} else if (strcmp(*argv, "unused") == 0) {
 			filter.unused_only = 1;
 		} else if (strcmp(*argv, "nud") == 0) {
-			unsigned state;
+			unsigned int state;
+
 			NEXT_ARG();
 			if (!state_given) {
 				state_given = 1;
@@ -354,13 +449,16 @@ int do_show_or_flush(int argc, char **argv, int flush)
 			if (state == 0)
 				state = 0x100;
 			filter.state |= state;
-		} else {
+		} else if (strcmp(*argv, "proxy") == 0)
+			req.ndm.ndm_flags = NTF_PROXY;
+		else {
 			if (strcmp(*argv, "to") == 0) {
 				NEXT_ARG();
 			}
 			if (matches(*argv, "help") == 0)
 				usage();
-			get_prefix(&filter.pfx, *argv, filter.family);
+			if (get_prefix(&filter.pfx, *argv, filter.family))
+				invarg("to value is invalid\n", *argv);
 			if (filter.family == AF_UNSPEC)
 				filter.family = filter.pfx.family;
 		}
@@ -370,11 +468,13 @@ int do_show_or_flush(int argc, char **argv, int flush)
 	ll_init_map(&rth);
 
 	if (filter_dev) {
-		if ((filter.index = ll_name_to_index(filter_dev)) == 0) {
-			fprintf(stderr, "Cannot find device \"%s\"\n", filter_dev);
-			return -1;
-		}
+		filter.index = ll_name_to_index(filter_dev);
+		if (!filter.index)
+			return nodev(filter_dev);
+		addattr32(&req.n, sizeof(req), NDA_IFINDEX, filter.index);
 	}
+
+	req.ndm.ndm_family = filter.family;
 
 	if (flush) {
 		int round = 0;
@@ -383,15 +483,14 @@ int do_show_or_flush(int argc, char **argv, int flush)
 		filter.flushb = flushb;
 		filter.flushp = 0;
 		filter.flushe = sizeof(flushb);
-		filter.state &= ~NUD_FAILED;
 
 		while (round < MAX_ROUNDS) {
-			if (rtnl_wilddump_request(&rth, filter.family, RTM_GETNEIGH) < 0) {
+			if (rtnl_dump_request_n(&rth, &req.n) < 0) {
 				perror("Cannot send dump request");
 				exit(1);
 			}
 			filter.flushed = 0;
-			if (rtnl_dump_filter(&rth, print_neigh, stdout, NULL, NULL) < 0) {
+			if (rtnl_dump_filter(&rth, print_neigh, stdout) < 0) {
 				fprintf(stderr, "Flush terminated\n");
 				exit(1);
 			}
@@ -400,7 +499,7 @@ int do_show_or_flush(int argc, char **argv, int flush)
 					if (round == 0)
 						printf("Nothing to flush.\n");
 					else
-						printf("*** Flush is complete after %d round%s ***\n", round, round>1?"s":"");
+						printf("*** Flush is complete after %d round%s ***\n", round, round > 1?"s":"");
 				}
 				fflush(stdout);
 				return 0;
@@ -412,21 +511,24 @@ int do_show_or_flush(int argc, char **argv, int flush)
 				printf("\n*** Round %d, deleting %d entries ***\n", round, filter.flushed);
 				fflush(stdout);
 			}
+			filter.state &= ~NUD_FAILED;
 		}
 		printf("*** Flush not complete bailing out after %d rounds\n",
 			MAX_ROUNDS);
 		return 1;
 	}
 
-	if (rtnl_wilddump_request(&rth, filter.family, RTM_GETNEIGH) < 0) {
+	if (rtnl_dump_request_n(&rth, &req.n) < 0) {
 		perror("Cannot send dump request");
 		exit(1);
 	}
 
-	if (rtnl_dump_filter(&rth, print_neigh, stdout, NULL, NULL) < 0) {
+	new_json_obj(json);
+	if (rtnl_dump_filter(&rth, print_neigh, stdout) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		exit(1);
 	}
+	delete_json_obj();
 
 	return 0;
 }

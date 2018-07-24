@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -28,6 +27,8 @@
 
 #include "rt_names.h"
 #include "utils.h"
+#include "ip_common.h"
+#include "json_print.h"
 
 static struct {
 	char *dev;
@@ -45,10 +46,11 @@ static void usage(void)
 
 static int parse_hex(char *str, unsigned char *addr, size_t size)
 {
-	int len=0;
+	int len = 0;
 
 	while (*str && (len < 2 * size)) {
 		int tmp;
+
 		if (str[1] == 0)
 			return -1;
 		if (sscanf(str, "%02x", &tmp) != 1)
@@ -60,8 +62,7 @@ static int parse_hex(char *str, unsigned char *addr, size_t size)
 	return len;
 }
 
-struct ma_info
-{
+struct ma_info {
 	struct ma_info *next;
 	int		index;
 	int		users;
@@ -70,11 +71,11 @@ struct ma_info
 	inet_prefix	addr;
 };
 
-void maddr_ins(struct ma_info **lst, struct ma_info *m)
+static void maddr_ins(struct ma_info **lst, struct ma_info *m)
 {
 	struct ma_info *mp;
 
-	for (; (mp=*lst) != NULL; lst = &mp->next) {
+	for (; (mp = *lst) != NULL; lst = &mp->next) {
 		if (mp->index > m->index)
 			break;
 	}
@@ -82,7 +83,7 @@ void maddr_ins(struct ma_info **lst, struct ma_info *m)
 	*lst = m;
 }
 
-void read_dev_mcast(struct ma_info **result_p)
+static void read_dev_mcast(struct ma_info **result_p)
 {
 	char buf[256];
 	FILE *fp = fopen("/proc/net/dev_mcast", "r");
@@ -92,19 +93,16 @@ void read_dev_mcast(struct ma_info **result_p)
 
 	while (fgets(buf, sizeof(buf), fp)) {
 		char hexa[256];
-		struct ma_info m;
+		struct ma_info m = { .addr.family = AF_PACKET };
 		int len;
 		int st;
 
-		memset(&m, 0, sizeof(m));
 		sscanf(buf, "%d%s%d%d%s", &m.index, m.name, &m.users, &st,
 		       hexa);
 		if (filter.dev && strcmp(filter.dev, m.name))
 			continue;
 
-		m.addr.family = AF_PACKET;
-
-		len = parse_hex(hexa, (unsigned char*)&m.addr.data, sizeof (m.addr.data));
+		len = parse_hex(hexa, (unsigned char *)&m.addr.data, sizeof(m.addr.data));
 		if (len >= 0) {
 			struct ma_info *ma = malloc(sizeof(m));
 
@@ -119,36 +117,40 @@ void read_dev_mcast(struct ma_info **result_p)
 	fclose(fp);
 }
 
-void read_igmp(struct ma_info **result_p)
+static void read_igmp(struct ma_info **result_p)
 {
-	struct ma_info m;
+	struct ma_info m = {
+		.addr.family = AF_INET,
+		.addr.bitlen = 32,
+		.addr.bytelen = 4,
+	};
 	char buf[256];
 	FILE *fp = fopen("/proc/net/igmp", "r");
 
 	if (!fp)
 		return;
-	memset(&m, 0, sizeof(m));
 	if (!fgets(buf, sizeof(buf), fp)) {
 		fclose(fp);
 		return;
 	}
 
-	m.addr.family = AF_INET;
-	m.addr.bitlen = 32;
-	m.addr.bytelen = 4;
-
 	while (fgets(buf, sizeof(buf), fp)) {
 		struct ma_info *ma;
 
 		if (buf[0] != '\t') {
+			size_t len;
+
 			sscanf(buf, "%d%s", &m.index, m.name);
+			len = strlen(m.name);
+			if (m.name[len - 1] == ':')
+				m.name[len - 1] = '\0';
 			continue;
 		}
 
 		if (filter.dev && strcmp(filter.dev, m.name))
 			continue;
 
-		sscanf(buf, "%08x%d", (__u32*)&m.addr.data, &m.users);
+		sscanf(buf, "%08x%d", (__u32 *)&m.addr.data, &m.users);
 
 		ma = malloc(sizeof(m));
 		memcpy(ma, &m, sizeof(m));
@@ -158,7 +160,7 @@ void read_igmp(struct ma_info **result_p)
 }
 
 
-void read_igmp6(struct ma_info **result_p)
+static void read_igmp6(struct ma_info **result_p)
 {
 	char buf[256];
 	FILE *fp = fopen("/proc/net/igmp6", "r");
@@ -168,18 +170,15 @@ void read_igmp6(struct ma_info **result_p)
 
 	while (fgets(buf, sizeof(buf), fp)) {
 		char hexa[256];
-		struct ma_info m;
+		struct ma_info m = { .addr.family = AF_INET6 };
 		int len;
 
-		memset(&m, 0, sizeof(m));
 		sscanf(buf, "%d%s%s%d", &m.index, m.name, hexa, &m.users);
 
 		if (filter.dev && strcmp(filter.dev, m.name))
 			continue;
 
-		m.addr.family = AF_INET6;
-
-		len = parse_hex(hexa, (unsigned char*)&m.addr.data, sizeof (m.addr.data));
+		len = parse_hex(hexa, (unsigned char *)&m.addr.data, sizeof(m.addr.data));
 		if (len >= 0) {
 			struct ma_info *ma = malloc(sizeof(m));
 
@@ -195,53 +194,66 @@ void read_igmp6(struct ma_info **result_p)
 
 static void print_maddr(FILE *fp, struct ma_info *list)
 {
-	fprintf(fp, "\t");
+	print_string(PRINT_FP, NULL, "\t", NULL);
 
+	open_json_object(NULL);
 	if (list->addr.family == AF_PACKET) {
 		SPRINT_BUF(b1);
-		fprintf(fp, "link  %s", ll_addr_n2a((unsigned char*)list->addr.data,
-						    list->addr.bytelen, 0,
-						    b1, sizeof(b1)));
+
+		print_string(PRINT_FP, NULL, "link  ", NULL);
+		print_color_string(PRINT_ANY, COLOR_MAC, "link", "%s",
+				   ll_addr_n2a((void *)list->addr.data, list->addr.bytelen,
+					       0, b1, sizeof(b1)));
 	} else {
-		char abuf[256];
-		switch(list->addr.family) {
-		case AF_INET:
-			fprintf(fp, "inet  ");
-			break;
-		case AF_INET6:
-			fprintf(fp, "inet6 ");
-			break;
-		default:
-			fprintf(fp, "family %d ", list->addr.family);
-			break;
-		}
-		fprintf(fp, "%s",
-			format_host(list->addr.family,
-				    -1,
-				    list->addr.data,
-				    abuf, sizeof(abuf)));
+		print_string(PRINT_ANY, "family", "%-5s ",
+			     family_name(list->addr.family));
+		print_color_string(PRINT_ANY, ifa_family_color(list->addr.family),
+				   "address", "%s",
+				   format_host(list->addr.family,
+					       -1, list->addr.data));
 	}
+
 	if (list->users != 1)
-		fprintf(fp, " users %d", list->users);
+		print_uint(PRINT_ANY, "users", " users %u", list->users);
+
 	if (list->features)
-		fprintf(fp, " %s", list->features);
-	fprintf(fp, "\n");
+		print_string(PRINT_ANY, "features", " %s", list->features);
+
+	print_string(PRINT_FP, NULL, "\n", NULL);
+	close_json_object();
 }
 
 static void print_mlist(FILE *fp, struct ma_info *list)
 {
 	int cur_index = 0;
 
+	new_json_obj(json);
 	for (; list; list = list->next) {
-		if (oneline) {
+
+		if (list->index != cur_index || oneline) {
+			if (cur_index) {
+				close_json_array(PRINT_JSON, NULL);
+				close_json_object();
+			}
+			open_json_object(NULL);
+
+			print_uint(PRINT_ANY, "ifindex", "%d:", list->index);
+			print_color_string(PRINT_ANY, COLOR_IFNAME,
+					   "ifname", "\t%s", list->name);
+			print_string(PRINT_FP, NULL, "%s", _SL_);
 			cur_index = list->index;
-			fprintf(fp, "%d:\t%s%s", cur_index, list->name, _SL_);
-		} else if (cur_index != list->index) {
-			cur_index = list->index;
-			fprintf(fp, "%d:\t%s\n", cur_index, list->name);
+
+			open_json_array(PRINT_JSON, "maddr");
 		}
+
 		print_maddr(fp, list);
 	}
+	if (cur_index) {
+		close_json_array(PRINT_JSON, NULL);
+		close_json_object();
+	}
+
+	delete_json_obj();
 }
 
 static int multiaddr_list(int argc, char **argv)
@@ -255,8 +267,7 @@ static int multiaddr_list(int argc, char **argv)
 		if (1) {
 			if (strcmp(*argv, "dev") == 0) {
 				NEXT_ARG();
-			}
-			if (matches(*argv, "help") == 0)
+			} else if (matches(*argv, "help") == 0)
 				usage();
 			if (filter.dev)
 				duparg2("dev", *argv);
@@ -275,12 +286,10 @@ static int multiaddr_list(int argc, char **argv)
 	return 0;
 }
 
-int multiaddr_modify(int cmd, int argc, char **argv)
+static int multiaddr_modify(int cmd, int argc, char **argv)
 {
-	struct ifreq ifr;
+	struct ifreq ifr = {};
 	int fd;
-
-	memset(&ifr, 0, sizeof(ifr));
 
 	if (cmd == RTM_NEWADDR)
 		cmd = SIOCADDMULTI;
@@ -292,7 +301,8 @@ int multiaddr_modify(int cmd, int argc, char **argv)
 			NEXT_ARG();
 			if (ifr.ifr_name[0])
 				duparg("dev", *argv);
-			strncpy(ifr.ifr_name, *argv, IFNAMSIZ);
+			if (get_ifname(ifr.ifr_name, *argv))
+				invarg("\"dev\" not a valid ifname", *argv);
 		} else {
 			if (matches(*argv, "address") == 0) {
 				NEXT_ARG();
@@ -319,7 +329,7 @@ int multiaddr_modify(int cmd, int argc, char **argv)
 		perror("Cannot create socket");
 		exit(1);
 	}
-	if (ioctl(fd, cmd, (char*)&ifr) != 0) {
+	if (ioctl(fd, cmd, (char *)&ifr) != 0) {
 		perror("ioctl");
 		exit(1);
 	}

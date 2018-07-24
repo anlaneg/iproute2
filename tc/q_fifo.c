@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -28,17 +27,17 @@ static void explain(void)
 	fprintf(stderr, "Usage: ... <[p|b]fifo | pfifo_head_drop> [ limit NUMBER ]\n");
 }
 
-static int fifo_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlmsghdr *n)
+static int fifo_parse_opt(struct qdisc_util *qu, int argc, char **argv,
+			  struct nlmsghdr *n, const char *dev)
 {
-	int ok=0;
-	struct tc_fifo_qopt opt;
-	memset(&opt, 0, sizeof(opt));
+	int ok = 0;
+	struct tc_fifo_qopt opt = {};
 
 	while (argc > 0) {
 		if (strcmp(*argv, "limit") == 0) {
 			NEXT_ARG();
 			if (get_size(&opt.limit, *argv)) {
-				fprintf(stderr, "Illegal \"limit\"\n");
+				fprintf(stderr, "%s: Illegal value for \"limit\": \"%s\"\n", qu->id, *argv);
 				return -1;
 			}
 			ok++;
@@ -46,7 +45,7 @@ static int fifo_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct n
 			explain();
 			return -1;
 		} else {
-			fprintf(stderr, "What is \"%s\"?\n", *argv);
+			fprintf(stderr, "%s: unknown parameter \"%s\"\n", qu->id, *argv);
 			explain();
 			return -1;
 		}

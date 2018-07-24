@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -22,6 +21,7 @@
 
 #include "utils.h"
 #include "tc_util.h"
+#include "tc_common.h"
 
 static void est_help(void);
 
@@ -31,14 +31,13 @@ static void est_help(void)
 	fprintf(stderr, "  INTERVAL is interval between measurements\n");
 	fprintf(stderr, "  TIME-CONST is averaging time constant\n");
 	fprintf(stderr, "Example: ... est 1sec 8sec\n");
-	return;
 }
 
 int parse_estimator(int *p_argc, char ***p_argv, struct tc_estimator *est)
 {
 	int argc = *p_argc;
 	char **argv = *p_argv;
-	unsigned A, time_const;
+	unsigned int A, time_const;
 
 	NEXT_ARG();
 	if (est->ewma_log)

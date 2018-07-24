@@ -12,9 +12,8 @@
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
  *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place - Suite 330, Boston, MA 02111-1307 USA.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses>.
  *
  * Authors:	Alexander Duyck <alexander.h.duyck@intel.com>
  *
@@ -27,14 +26,17 @@
 #include "utils.h"
 #include "tc_util.h"
 #include <linux/tc_act/tc_skbedit.h>
+#include <linux/if_packet.h>
 
-static void
-explain(void)
+static void explain(void)
 {
- 	fprintf(stderr, "Usage: ... skbedit <[QM] [PM] [MM]>\n"
+	fprintf(stderr, "Usage: ... skbedit <[QM] [PM] [MM] [PT]>\n"
 		"QM = queue_mapping QUEUE_MAPPING\n"
-		"PM = priority PRIORITY \n"
-		"MM = mark MARK \n"
+		"PM = priority PRIORITY\n"
+		"MM = mark MARK\n"
+		"PT = ptype PACKETYPE\n"
+		"PACKETYPE = is one of:\n"
+		"  host, otherhost, broadcast, multicast\n"
 		"QUEUE_MAPPING = device transmit queue to use\n"
 		"PRIORITY = classID to assign to priority field\n"
 		"MARK = firewall mark to set\n");
@@ -56,7 +58,7 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 	int ok = 0;
 	struct rtattr *tail;
 	unsigned int tmp;
-	__u16 queue_mapping;
+	__u16 queue_mapping, ptype;
 	__u32 flags = 0, priority, mark;
 	struct tc_skbedit sel = { 0 };
 
@@ -91,6 +93,24 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				return -1;
 			}
 			ok++;
+		} else if (matches(*argv, "ptype") == 0) {
+
+			NEXT_ARG();
+			if (matches(*argv, "host") == 0) {
+				ptype = PACKET_HOST;
+			} else if (matches(*argv, "broadcast") == 0) {
+				ptype = PACKET_BROADCAST;
+			} else if (matches(*argv, "multicast") == 0) {
+				ptype = PACKET_MULTICAST;
+			} else if (matches(*argv, "otherhost") == 0) {
+				ptype = PACKET_OTHERHOST;
+			} else {
+				fprintf(stderr, "Illegal ptype (%s)\n",
+					*argv);
+				return -1;
+			}
+			flags |= SKBEDIT_F_PTYPE;
+			ok++;
 		} else if (matches(*argv, "help") == 0) {
 			usage();
 		} else {
@@ -100,25 +120,8 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		argv++;
 	}
 
-	if (argc) {
-		if (matches(*argv, "reclassify") == 0) {
-			sel.action = TC_ACT_RECLASSIFY;
-			NEXT_ARG();
-		} else if (matches(*argv, "pipe") == 0) {
-			sel.action = TC_ACT_PIPE;
-			NEXT_ARG();
-		} else if (matches(*argv, "drop") == 0 ||
-			matches(*argv, "shot") == 0) {
-			sel.action = TC_ACT_SHOT;
-			NEXT_ARG();
-		} else if (matches(*argv, "continue") == 0) {
-			sel.action = TC_ACT_UNSPEC;
-			NEXT_ARG();
-		} else if (matches(*argv, "pass") == 0) {
-			sel.action = TC_ACT_OK;
-			NEXT_ARG();
-		}
-	}
+	parse_action_control_dflt(&argc, &argv, &sel.action,
+				  false, TC_ACT_PIPE);
 
 	if (argc) {
 		if (matches(*argv, "index") == 0) {
@@ -139,8 +142,7 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 	}
 
 
-	tail = NLMSG_TAIL(n);
-	addattr_l(n, MAX_MSG, tca_id, NULL, 0);
+	tail = addattr_nest(n, MAX_MSG, tca_id);
 	addattr_l(n, MAX_MSG, TCA_SKBEDIT_PARMS, &sel, sizeof(sel));
 	if (flags & SKBEDIT_F_QUEUE_MAPPING)
 		addattr_l(n, MAX_MSG, TCA_SKBEDIT_QUEUE_MAPPING,
@@ -151,7 +153,10 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 	if (flags & SKBEDIT_F_MARK)
 		addattr_l(n, MAX_MSG, TCA_SKBEDIT_MARK,
 			  &mark, sizeof(mark));
-	tail->rta_len = (char *)NLMSG_TAIL(n) - (char *)tail;
+	if (flags & SKBEDIT_F_PTYPE)
+		addattr_l(n, MAX_MSG, TCA_SKBEDIT_PTYPE,
+			  &ptype, sizeof(ptype));
+	addattr_nest_end(n, tail);
 
 	*argc_p = argc;
 	*argv_p = argv;
@@ -161,10 +166,11 @@ parse_skbedit(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 static int print_skbedit(struct action_util *au, FILE *f, struct rtattr *arg)
 {
 	struct rtattr *tb[TCA_SKBEDIT_MAX + 1];
+
 	SPRINT_BUF(b1);
-	__u32 *priority;
-	__u32 *mark;
-	__u16 *queue_mapping;
+	__u32 priority;
+	__u16 ptype;
+	struct tc_skbedit *p = NULL;
 
 	if (arg == NULL)
 		return -1;
@@ -172,31 +178,59 @@ static int print_skbedit(struct action_util *au, FILE *f, struct rtattr *arg)
 	parse_rtattr_nested(tb, TCA_SKBEDIT_MAX, arg);
 
 	if (tb[TCA_SKBEDIT_PARMS] == NULL) {
-		fprintf(f, "[NULL skbedit parameters]");
+		print_string(PRINT_FP, NULL, "%s", "[NULL skbedit parameters]");
 		return -1;
 	}
+	p = RTA_DATA(tb[TCA_SKBEDIT_PARMS]);
 
-	fprintf(f, " skbedit");
+	print_string(PRINT_ANY, "kind", "%s ", "skbedit");
 
 	if (tb[TCA_SKBEDIT_QUEUE_MAPPING] != NULL) {
-		queue_mapping = RTA_DATA(tb[TCA_SKBEDIT_QUEUE_MAPPING]);
-		fprintf(f, " queue_mapping %u", *queue_mapping);
+		print_uint(PRINT_ANY, "queue_mapping", "queue_mapping %u",
+			   rta_getattr_u16(tb[TCA_SKBEDIT_QUEUE_MAPPING]));
 	}
 	if (tb[TCA_SKBEDIT_PRIORITY] != NULL) {
-		priority = RTA_DATA(tb[TCA_SKBEDIT_PRIORITY]);
-		fprintf(f, " priority %s", sprint_tc_classid(*priority, b1));
+		priority = rta_getattr_u32(tb[TCA_SKBEDIT_PRIORITY]);
+		print_string(PRINT_ANY, "priority", " priority %s",
+			     sprint_tc_classid(priority, b1));
 	}
 	if (tb[TCA_SKBEDIT_MARK] != NULL) {
-		mark = RTA_DATA(tb[TCA_SKBEDIT_MARK]);
-		fprintf(f, " mark %d", *mark);
+		print_uint(PRINT_ANY, "mark", " mark %u",
+			   rta_getattr_u32(tb[TCA_SKBEDIT_MARK]));
 	}
+	if (tb[TCA_SKBEDIT_PTYPE] != NULL) {
+		ptype = rta_getattr_u16(tb[TCA_SKBEDIT_PTYPE]);
+		if (ptype == PACKET_HOST)
+			print_string(PRINT_ANY, "ptype", " ptype %s", "host");
+		else if (ptype == PACKET_BROADCAST)
+			print_string(PRINT_ANY, "ptype", " ptype %s",
+				     "broadcast");
+		else if (ptype == PACKET_MULTICAST)
+			print_string(PRINT_ANY, "ptype", " ptype %s",
+				     "multicast");
+		else if (ptype == PACKET_OTHERHOST)
+			print_string(PRINT_ANY, "ptype", " ptype %s",
+				     "otherhost");
+		else
+			print_uint(PRINT_ANY, "ptype", " ptype %u", ptype);
+	}
+
+	print_action_control(f, " ", p->action, "");
+
+	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_uint(PRINT_ANY, "index", "\t index %u", p->index);
+	print_int(PRINT_ANY, "ref", " ref %d", p->refcnt);
+	print_int(PRINT_ANY, "bind", " bind %d", p->bindcnt);
 
 	if (show_stats) {
 		if (tb[TCA_SKBEDIT_TM]) {
 			struct tcf_t *tm = RTA_DATA(tb[TCA_SKBEDIT_TM]);
+
 			print_tm(f, tm);
 		}
 	}
+
+	print_string(PRINT_FP, NULL, "%s", _SL_);
 
 	return 0;
 }

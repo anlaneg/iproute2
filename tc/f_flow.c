@@ -1,10 +1,10 @@
 /*
  * f_flow.c		Flow filter
  *
- * 		This program is free software; you can redistribute it and/or
- * 		modify it under the terms of the GNU General Public License
- * 		as published by the Free Software Foundation; either version
- * 		2 of the License, or (at your option) any later version.
+ *		This program is free software; you can redistribute it and/or
+ *		modify it under the terms of the GNU General Public License
+ *		as published by the Free Software Foundation; either version
+ *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Patrick McHardy <kaber@trash.net>
  */
@@ -27,11 +27,11 @@ static void explain(void)
 " [hashing mode]: hash keys KEY-LIST ... [ perturb SECS ]\n"
 "\n"
 "                 [ divisor NUM ] [ baseclass ID ] [ match EMATCH_TREE ]\n"
-"                 [ police POLICE_SPEC ] [ action ACTION_SPEC ]\n"
+"                 [ action ACTION_SPEC ]\n"
 "\n"
 "KEY-LIST := [ KEY-LIST , ] KEY\n"
-"KEY      := [ src | dst | proto | proto-src | proto-dst | iif | priority | \n"
-"              mark | nfct | nfct-src | nfct-dst | nfct-proto-src | \n"
+"KEY      := [ src | dst | proto | proto-src | proto-dst | iif | priority |\n"
+"              mark | nfct | nfct-src | nfct-dst | nfct-proto-src |\n"
 "              nfct-proto-dst | rt-classid | sk-uid | sk-gid |\n"
 "              vlan-tag | rxhash ]\n"
 "OPS      := [ or NUM | and NUM | xor NUM | rshift NUM | addend NUM ]\n"
@@ -133,15 +133,12 @@ out:
 static int flow_parse_opt(struct filter_util *fu, char *handle,
 			  int argc, char **argv, struct nlmsghdr *n)
 {
-	struct tc_police tp;
 	struct tcmsg *t = NLMSG_DATA(n);
 	struct rtattr *tail;
 	__u32 mask = ~0U, xor = 0;
 	__u32 keys = 0, nkeys = 0;
 	__u32 mode = FLOW_MODE_MAP;
 	__u32 tmp;
-
-	memset(&tp, 0, sizeof(tp));
 
 	if (handle) {
 		if (get_u32(&t->tcm_handle, handle, 0)) {
@@ -150,8 +147,7 @@ static int flow_parse_opt(struct filter_util *fu, char *handle,
 		}
 	}
 
-	tail = NLMSG_TAIL(n);
-	addattr_l(n, 4096, TCA_OPTIONS, NULL, 0);
+	tail = addattr_nest(n, 4096, TCA_OPTIONS);
 
 	while (argc > 0) {
 		if (matches(*argv, "map") == 0) {
@@ -262,7 +258,7 @@ static int flow_parse_opt(struct filter_util *fu, char *handle,
 		addattr32(n, 4096, TCA_FLOW_XOR, xor);
 	}
 
-	tail->rta_len = (void *)NLMSG_TAIL(n) - (void *)tail;
+	addattr_nest_end(n, tail);
 	return 0;
 }
 
@@ -270,6 +266,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 			  __u32 handle)
 {
 	struct rtattr *tb[TCA_FLOW_MAX+1];
+
 	SPRINT_BUF(b1);
 	unsigned int i;
 	__u32 mask = ~0, val = 0;
@@ -282,7 +279,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	fprintf(f, "handle 0x%x ", handle);
 
 	if (tb[TCA_FLOW_MODE]) {
-		__u32 mode = *(__u32 *)RTA_DATA(tb[TCA_FLOW_MODE]);
+		__u32 mode = rta_getattr_u32(tb[TCA_FLOW_MODE]);
 
 		switch (mode) {
 		case FLOW_MODE_MAP:
@@ -295,7 +292,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	}
 
 	if (tb[TCA_FLOW_KEYS]) {
-		__u32 keymask = *(__u32 *)RTA_DATA(tb[TCA_FLOW_KEYS]);
+		__u32 keymask = rta_getattr_u32(tb[TCA_FLOW_KEYS]);
 		char *sep = "";
 
 		fprintf(f, "keys ");
@@ -309,9 +306,9 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 	}
 
 	if (tb[TCA_FLOW_MASK])
-		mask = *(__u32 *)RTA_DATA(tb[TCA_FLOW_MASK]);
+		mask = rta_getattr_u32(tb[TCA_FLOW_MASK]);
 	if (tb[TCA_FLOW_XOR])
-		val = *(__u32 *)RTA_DATA(tb[TCA_FLOW_XOR]);
+		val = rta_getattr_u32(tb[TCA_FLOW_XOR]);
 
 	if (mask != ~0 || val != 0) {
 		__u32 or = (mask & val) ^ val;
@@ -327,21 +324,21 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 
 	if (tb[TCA_FLOW_RSHIFT])
 		fprintf(f, "rshift %u ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_RSHIFT]));
+			rta_getattr_u32(tb[TCA_FLOW_RSHIFT]));
 	if (tb[TCA_FLOW_ADDEND])
 		fprintf(f, "addend 0x%x ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_ADDEND]));
+			rta_getattr_u32(tb[TCA_FLOW_ADDEND]));
 
 	if (tb[TCA_FLOW_DIVISOR])
 		fprintf(f, "divisor %u ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_DIVISOR]));
+			rta_getattr_u32(tb[TCA_FLOW_DIVISOR]));
 	if (tb[TCA_FLOW_BASECLASS])
 		fprintf(f, "baseclass %s ",
-			sprint_tc_classid(*(__u32 *)RTA_DATA(tb[TCA_FLOW_BASECLASS]), b1));
+			sprint_tc_classid(rta_getattr_u32(tb[TCA_FLOW_BASECLASS]), b1));
 
 	if (tb[TCA_FLOW_PERTURB])
 		fprintf(f, "perturb %usec ",
-			*(__u32 *)RTA_DATA(tb[TCA_FLOW_PERTURB]));
+			rta_getattr_u32(tb[TCA_FLOW_PERTURB]));
 
 	if (tb[TCA_FLOW_EMATCHES])
 		print_ematch(f, tb[TCA_FLOW_EMATCHES]);
@@ -349,7 +346,7 @@ static int flow_print_opt(struct filter_util *fu, FILE *f, struct rtattr *opt,
 		tc_print_police(f, tb[TCA_FLOW_POLICE]);
 	if (tb[TCA_FLOW_ACT]) {
 		fprintf(f, "\n");
-		tc_print_action(f, tb[TCA_FLOW_ACT]);
+		tc_print_action(f, tb[TCA_FLOW_ACT], 0);
 	}
 	return 0;
 }

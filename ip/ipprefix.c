@@ -12,8 +12,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see <http://www.gnu.org/licenses>.
  */
 /*
  * based on ip.c, iproute.c
@@ -26,8 +25,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <netinet/icmp6.h>
+
 #include "utils.h"
+#include "ip_common.h"
 
 /* prefix flags; see kernel's net/ipv6/addrconf.c and include/net/if_inet6.h */
 #define IF_PREFIX_ONLINK	0x01
@@ -35,10 +37,10 @@
 
 int print_prefix(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 {
-	FILE *fp = (FILE*)arg;
+	FILE *fp = (FILE *)arg;
 	struct prefixmsg *prefix = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
-	struct rtattr * tb[RTA_MAX+1];
+	struct rtattr *tb[RTA_MAX+1];
 	int family = preferred_family;
 
 	if (n->nlmsg_type != RTM_NEWPREFIX) {
@@ -59,7 +61,7 @@ int print_prefix(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 		return 0;
 
 	if (prefix->prefix_family != AF_INET6) {
-		fprintf(stderr, "wrong family %d\n", prefix->prefix_family);
+		fprintf(stderr, "incorrect protocol family: %d\n", prefix->prefix_family);
 		return 0;
 	}
 	if (prefix->prefix_type != ND_OPT_PREFIX_INFORMATION) {
@@ -69,20 +71,11 @@ int print_prefix(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 
 	parse_rtattr(tb, RTA_MAX, RTM_RTA(prefix), len);
 
-	fprintf(fp, "prefix ");
-
 	if (tb[PREFIX_ADDRESS]) {
-		struct in6_addr *pfx;
-		char abuf[256];
-
-		pfx = (struct in6_addr *)RTA_DATA(tb[PREFIX_ADDRESS]);
-
-		memset(abuf, '\0', sizeof(abuf));
-		fprintf(fp, "%s", rt_addr_n2a(family, sizeof(*pfx), pfx,
-					      abuf, sizeof(abuf)));
+		fprintf(fp, "prefix %s/%u",
+		        rt_addr_n2a_rta(family, tb[PREFIX_ADDRESS]),
+			prefix->prefix_len);
 	}
-	fprintf(fp, "/%u ", prefix->prefix_len);
-
 	fprintf(fp, "dev %s ", ll_index_to_name(prefix->prefix_ifindex));
 
 	if (prefix->prefix_flags & IF_PREFIX_ONLINK)
@@ -91,8 +84,8 @@ int print_prefix(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 		fprintf(fp, "autoconf ");
 
 	if (tb[PREFIX_CACHEINFO]) {
-		struct prefix_cacheinfo *pc;
-		pc = (struct prefix_cacheinfo *)RTA_DATA(tb[PREFIX_CACHEINFO]);
+		const struct prefix_cacheinfo *pc
+			 = RTA_DATA(tb[PREFIX_CACHEINFO]);
 
 		fprintf(fp, "valid %u ", pc->valid_time);
 		fprintf(fp, "preferred %u ", pc->preferred_time);
@@ -103,4 +96,3 @@ int print_prefix(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 
 	return 0;
 }
-

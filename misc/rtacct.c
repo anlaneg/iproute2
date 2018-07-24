@@ -33,20 +33,21 @@
 
 #include <SNAPSHOT.h>
 
-int reset_history = 0;
-int ignore_history = 0;
-int no_output = 0;
-int no_update = 0;
-int scan_interval = 0;
-int time_constant = 0;
-int dump_zeros = 0;
-unsigned long magic_number = 0;
+int reset_history;
+int ignore_history;
+int no_output;
+int no_update;
+int scan_interval;
+int time_constant;
+int dump_zeros;
+unsigned long magic_number;
 double W;
 
 static int generic_proc_open(const char *env, const char *name)
 {
 	char store[1024];
 	char *p = getenv(env);
+
 	if (!p) {
 		p = getenv("PROC_ROOT") ? : "/proc";
 		snprintf(store, sizeof(store)-1, "%s/%s", p, name);
@@ -55,15 +56,14 @@ static int generic_proc_open(const char *env, const char *name)
 	return open(p, O_RDONLY);
 }
 
-int net_rtacct_open(void)
+static int net_rtacct_open(void)
 {
 	return generic_proc_open("PROC_NET_RTACCT", "net/rt_acct");
 }
 
-__u32 rmap[256/4];
+static __u32 rmap[256/4];
 
-struct rtacct_data
-{
+struct rtacct_data {
 	__u32			ival[256*4];
 
 	unsigned long long	val[256*4];
@@ -71,17 +71,18 @@ struct rtacct_data
 	char			signature[128];
 };
 
-struct rtacct_data kern_db_static;
+static struct rtacct_data kern_db_static;
 
-struct rtacct_data *kern_db = &kern_db_static;
-struct rtacct_data *hist_db;
+static struct rtacct_data *kern_db = &kern_db_static;
+static struct rtacct_data *hist_db;
 
-void nread(int fd, char *buf, int tot)
+static void nread(int fd, char *buf, int tot)
 {
 	int count = 0;
 
 	while (count < tot) {
 		int n = read(fd, buf+count, tot-count);
+
 		if (n < 0) {
 			if (errno == EINTR)
 				continue;
@@ -93,8 +94,7 @@ void nread(int fd, char *buf, int tot)
 	}
 }
 
-
-__u32 *read_kern_table(__u32 *tbl)
+static __u32 *read_kern_table(__u32 *tbl)
 {
 	static __u32 *tbl_ptr;
 	int fd;
@@ -122,7 +122,7 @@ __u32 *read_kern_table(__u32 *tbl)
 
 	fd = net_rtacct_open();
 	if (fd >= 0) {
-		nread(fd, (char*)tbl, 256*16);
+		nread(fd, (char *)tbl, 256*16);
 		close(fd);
 	} else {
 		memset(tbl, 0, 256*16);
@@ -130,21 +130,21 @@ __u32 *read_kern_table(__u32 *tbl)
 	return tbl;
 }
 
-void format_rate(FILE *fp, double rate)
+static void format_rate(FILE *fp, double rate)
 {
 	char temp[64];
 
 	if (rate > 1024*1024) {
-		sprintf(temp, "%uM", (unsigned)rint(rate/(1024*1024)));
+		sprintf(temp, "%uM", (unsigned int)rint(rate/(1024*1024)));
 		fprintf(fp, " %-10s", temp);
 	} else if (rate > 1024) {
-		sprintf(temp, "%uK", (unsigned)rint(rate/1024));
+		sprintf(temp, "%uK", (unsigned int)rint(rate/1024));
 		fprintf(fp, " %-10s", temp);
 	} else
-		fprintf(fp, " %-10u", (unsigned)rate);
+		fprintf(fp, " %-10u", (unsigned int)rate);
 }
 
-void format_count(FILE *fp, unsigned long long val)
+static void format_count(FILE *fp, unsigned long long val)
 {
 	if (val > 1024*1024*1024)
 		fprintf(fp, " %10lluM", val/(1024*1024));
@@ -154,7 +154,7 @@ void format_count(FILE *fp, unsigned long long val)
 		fprintf(fp, " %10llu", val);
 }
 
-void dump_abs_db(FILE *fp)
+static void dump_abs_db(FILE *fp)
 {
 	int realm;
 	char b1[16];
@@ -162,25 +162,19 @@ void dump_abs_db(FILE *fp)
 	if (!no_output) {
 		fprintf(fp, "#%s\n", kern_db->signature);
 		fprintf(fp,
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"\n"
+"%-10s %-10s "
+"%-10s %-10s "
+"%-10s \n"
 		       , "Realm", "BytesTo", "PktsTo", "BytesFrom", "PktsFrom");
 		fprintf(fp,
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"\n"
+"%-10s %-10s "
+"%-10s %-10s "
+"%-10s \n"
 		       , "", "BPSTo", "PPSTo", "BPSFrom", "PPSFrom");
 
 	}
 
-	for (realm=0; realm<256; realm++) {
+	for (realm = 0; realm < 256; realm++) {
 		int i;
 		unsigned long long *val;
 		double		   *rate;
@@ -216,7 +210,7 @@ void dump_abs_db(FILE *fp)
 }
 
 
-void dump_incr_db(FILE *fp)
+static void dump_incr_db(FILE *fp)
 {
 	int k, realm;
 	char b1[16];
@@ -224,24 +218,18 @@ void dump_incr_db(FILE *fp)
 	if (!no_output) {
 		fprintf(fp, "#%s\n", kern_db->signature);
 		fprintf(fp,
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"\n"
+"%-10s %-10s "
+"%-10s %-10s "
+"%-10s \n"
 		       , "Realm", "BytesTo", "PktsTo", "BytesFrom", "PktsFrom");
 		fprintf(fp,
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"%-10s "
-"\n"
+"%-10s %-10s "
+"%-10s %-10s "
+"%-10s \n"
 		       , "", "BPSTo", "PPSTo", "BPSFrom", "PPSFrom");
 	}
 
-	for (realm=0; realm<256; realm++) {
+	for (realm = 0; realm < 256; realm++) {
 		int ovfl = 0;
 		int i;
 		unsigned long long *val;
@@ -254,7 +242,7 @@ void dump_incr_db(FILE *fp)
 		val = &kern_db->val[realm*4];
 		rate = &kern_db->rate[realm*4];
 
-		for (k=0; k<4; k++) {
+		for (k = 0; k < 4; k++) {
 			rval[k] = val[k];
 			if (rval[k] < hist_db->val[realm*4+k])
 				ovfl = 1;
@@ -262,7 +250,7 @@ void dump_incr_db(FILE *fp)
 				rval[k] -= hist_db->val[realm*4+k];
 		}
 		if (ovfl) {
-			for (k=0; k<4; k++)
+			for (k = 0; k < 4; k++)
 				rval[k] = val[k];
 		}
 		if (hist_db) {
@@ -293,13 +281,13 @@ void dump_incr_db(FILE *fp)
 
 static int children;
 
-void sigchild(int signo)
+static void sigchild(int signo)
 {
 }
 
 /* Server side only: read kernel data, update tables, calculate rates. */
 
-void update_db(int interval)
+static void update_db(int interval)
 {
 	int i;
 	__u32 *ival;
@@ -307,7 +295,7 @@ void update_db(int interval)
 
 	ival = read_kern_table(_ival);
 
-	for (i=0; i<256*4; i++) {
+	for (i = 0; i < 256*4; i++) {
 		double sample;
 		__u32 incr = ival[i] - kern_db->ival[i];
 
@@ -325,18 +313,20 @@ void update_db(int interval)
 				kern_db->rate[i] = sample;
 			} else {
 				double w = W*(double)interval/scan_interval;
+
 				kern_db->rate[i] += w*(sample-kern_db->rate[i]);
 			}
 		}
 	}
 }
 
-void send_db(int fd)
+static void send_db(int fd)
 {
 	int tot = 0;
 
 	while (tot < sizeof(*kern_db)) {
-		int n = write(fd, ((char*)kern_db) + tot, sizeof(*kern_db)-tot);
+		int n = write(fd, ((char *)kern_db) + tot, sizeof(*kern_db)-tot);
+
 		if (n < 0) {
 			if (errno == EINTR)
 				continue;
@@ -348,29 +338,31 @@ void send_db(int fd)
 
 
 
-#define T_DIFF(a,b) (((a).tv_sec-(b).tv_sec)*1000 + ((a).tv_usec-(b).tv_usec)/1000)
+#define T_DIFF(a, b) (((a).tv_sec-(b).tv_sec)*1000 + ((a).tv_usec-(b).tv_usec)/1000)
 
 
-void pad_kern_table(struct rtacct_data *dat, __u32 *ival)
+static void pad_kern_table(struct rtacct_data *dat, __u32 *ival)
 {
 	int i;
+
 	memset(dat->rate, 0, sizeof(dat->rate));
 	if (dat->ival != ival)
 		memcpy(dat->ival, ival, sizeof(dat->ival));
-	for (i=0; i<256*4; i++)
+	for (i = 0; i < 256*4; i++)
 		dat->val[i] = ival[i];
 }
 
-void server_loop(int fd)
+static void server_loop(int fd)
 {
 	struct timeval snaptime = { 0 };
 	struct pollfd p;
+
 	p.fd = fd;
 	p.events = p.revents = POLLIN;
 
 	sprintf(kern_db->signature,
 		"%u.%lu sampling_interval=%d time_const=%d",
-		(unsigned) getpid(), (unsigned long)random(),
+		(unsigned int) getpid(), (unsigned long)random(),
 		scan_interval/1000, time_constant/1000);
 
 	pad_kern_table(kern_db, read_kern_table(kern_db->ival));
@@ -379,6 +371,7 @@ void server_loop(int fd)
 		int status;
 		int tdiff;
 		struct timeval now;
+
 		gettimeofday(&now, NULL);
 		tdiff = T_DIFF(now, snaptime);
 		if (tdiff >= scan_interval) {
@@ -389,12 +382,14 @@ void server_loop(int fd)
 		if (poll(&p, 1, tdiff + scan_interval) > 0
 		    && (p.revents&POLLIN)) {
 			int clnt = accept(fd, NULL, NULL);
+
 			if (clnt >= 0) {
 				pid_t pid;
+
 				if (children >= 5) {
 					close(clnt);
 				} else if ((pid = fork()) != 0) {
-					if (pid>0)
+					if (pid > 0)
 						children++;
 					close(clnt);
 				} else {
@@ -410,12 +405,12 @@ void server_loop(int fd)
 	}
 }
 
-int verify_forging(int fd)
+static int verify_forging(int fd)
 {
 	struct ucred cred;
 	socklen_t olen = sizeof(cred);
 
-	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, (void*)&cred, &olen) ||
+	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, (void *)&cred, &olen) ||
 	    olen < sizeof(cred))
 		return -1;
 	if (cred.uid == getuid() || cred.uid == 0)
@@ -441,7 +436,7 @@ int main(int argc, char *argv[])
 	int fd;
 
 	while ((ch = getopt(argc, argv, "h?vVzrM:nasd:t:")) != EOF) {
-		switch(ch) {
+		switch (ch) {
 		case 'z':
 			dump_zeros = 1;
 			break;
@@ -490,6 +485,7 @@ int main(int argc, char *argv[])
 	if (argc) {
 		while (argc > 0) {
 			__u32 realm;
+
 			if (rtnl_rtrealm_a2n(&realm, argv[0])) {
 				fprintf(stderr, "Warning: realm \"%s\" does not exist.\n", argv[0]);
 				exit(-1);
@@ -516,7 +512,7 @@ int main(int argc, char *argv[])
 			perror("rtacct: socket");
 			exit(-1);
 		}
-		if (bind(fd, (struct sockaddr*)&sun, 2+1+strlen(sun.sun_path+1)) < 0) {
+		if (bind(fd, (struct sockaddr *)&sun, 2+1+strlen(sun.sun_path+1)) < 0) {
 			perror("rtacct: bind");
 			exit(-1);
 		}
@@ -581,6 +577,7 @@ int main(int argc, char *argv[])
 		if (!ignore_history) {
 			FILE *tfp;
 			long uptime = -1;
+
 			if ((tfp = fopen("/proc/uptime", "r")) != NULL) {
 				if (fscanf(tfp, "%ld", &uptime) != 1)
 					uptime = -1;
@@ -597,11 +594,11 @@ int main(int argc, char *argv[])
 	}
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) >= 0 &&
-	    (connect(fd, (struct sockaddr*)&sun, 2+1+strlen(sun.sun_path+1)) == 0
+	    (connect(fd, (struct sockaddr *)&sun, 2+1+strlen(sun.sun_path+1)) == 0
 	     || (strcpy(sun.sun_path+1, "rtacct0"),
-		 connect(fd, (struct sockaddr*)&sun, 2+1+strlen(sun.sun_path+1)) == 0))
+		 connect(fd, (struct sockaddr *)&sun, 2+1+strlen(sun.sun_path+1)) == 0))
 	    && verify_forging(fd) == 0) {
-		nread(fd, (char*)kern_db, sizeof(*kern_db));
+		nread(fd, (char *)kern_db, sizeof(*kern_db));
 		if (hist_db && hist_db->signature[0] &&
 		    strcmp(kern_db->signature, hist_db->signature)) {
 			fprintf(stderr, "rtacct: history is stale, ignoring it.\n");

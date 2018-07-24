@@ -12,11 +12,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
@@ -29,7 +27,7 @@
 #include "utils.h"
 
 
-const char *ll_addr_n2a(unsigned char *addr, int alen, int type, char *buf, int blen)
+const char *ll_addr_n2a(const unsigned char *addr, int alen, int type, char *buf, int blen)
 {
 	int i;
 	int l;
@@ -38,26 +36,18 @@ const char *ll_addr_n2a(unsigned char *addr, int alen, int type, char *buf, int 
 	    (type == ARPHRD_TUNNEL || type == ARPHRD_SIT || type == ARPHRD_IPGRE)) {
 		return inet_ntop(AF_INET, addr, buf, blen);
 	}
-	if (alen == 16 && type == ARPHRD_TUNNEL6) {
+	if (alen == 16 &&
+	    (type == ARPHRD_TUNNEL6 || type == ARPHRD_IP6GRE)) {
 		return inet_ntop(AF_INET6, addr, buf, blen);
 	}
-	l = 0;
-	for (i=0; i<alen; i++) {
-		if (i==0) {
-			snprintf(buf+l, blen, "%02x", addr[i]);
-			blen -= 2;
-			l += 2;
-		} else {
-			snprintf(buf+l, blen, ":%02x", addr[i]);
-			blen -= 3;
-			l += 3;
-		}
-	}
+	snprintf(buf, blen, "%02x", addr[0]);
+	for (i = 1, l = 2; i < alen && l < blen; i++, l += 3)
+		snprintf(buf + l, blen - l, ":%02x", addr[i]);
 	return buf;
 }
 
 /*NB: lladdr is char * (rather than u8 *) because sa_data is char * (1003.1g) */
-int ll_addr_a2n(char *lladdr, int len, char *arg)
+int ll_addr_a2n(char *lladdr, int len, const char *arg)
 {
 	if (strchr(arg, '.')) {
 		inet_prefix pfx;

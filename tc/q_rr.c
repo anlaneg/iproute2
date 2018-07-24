@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <syslog.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -29,11 +28,11 @@ static void explain(void)
 }
 
 
-static int rr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlmsghdr *n)
+static int rr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlmsghdr *n, const char *dev)
 {
 	int pmap_mode = 0;
 	int idx = 0;
-	struct tc_prio_qopt opt={3,{ 1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 }};
+	struct tc_prio_qopt opt = {3, { 1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 } };
 	struct rtattr *nest;
 	unsigned char mq = 0;
 
@@ -58,7 +57,8 @@ static int rr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlm
 		} else if (strcmp(*argv, "multiqueue") == 0) {
 			mq = 1;
 		} else {
-			unsigned band;
+			unsigned int band;
+
 			if (!pmap_mode) {
 				fprintf(stderr, "What is \"%s\"?\n", *argv);
 				explain();
@@ -88,7 +88,7 @@ static int rr_parse_opt(struct qdisc_util *qu, int argc, char **argv, struct nlm
 	return 0;
 }
 
-int rr_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
+static int rr_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 {
 	int i;
 	struct tc_prio_qopt *qopt;
@@ -102,18 +102,18 @@ int rr_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 		return -1;
 
 	fprintf(f, "bands %u priomap ", qopt->bands);
-	for (i=0; i <= TC_PRIO_MAX; i++)
+	for (i = 0; i <= TC_PRIO_MAX; i++)
 		fprintf(f, " %d", qopt->priomap[i]);
 
 	if (tb[TCA_PRIO_MQ])
 		fprintf(f, " multiqueue: %s ",
-		    *(unsigned char *)RTA_DATA(tb[TCA_PRIO_MQ]) ? "on" : "off");
+			rta_getattr_u8(tb[TCA_PRIO_MQ]) ? "on" : "off");
 
 	return 0;
 }
 
 struct qdisc_util rr_qdisc_util = {
-	.id	 	= "rr",
+	.id		= "rr",
 	.parse_qopt	= rr_parse_opt,
 	.print_qopt	= rr_print_opt,
 };
