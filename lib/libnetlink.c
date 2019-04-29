@@ -896,7 +896,6 @@ static int __rtnl_talk_iov(struct rtnl_handle *rtnl, struct iovec *iov,
 	msg.msg_iovlen = 1;
 	i = 0;
 	while (1) {
-		iov.iov_len = sizeof(buf);
 next:
 		//获取响应
 		status = rtnl_recvmsg(rtnl->fd, &msg, &buf);
