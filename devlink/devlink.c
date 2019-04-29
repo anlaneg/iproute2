@@ -17,10 +17,13 @@
 #include <getopt.h>
 #include <limits.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <linux/genetlink.h>
 #include <linux/devlink.h>
 #include <libmnl/libmnl.h>
 #include <netinet/ether.h>
+#include <sys/sysinfo.h>
+#include <sys/queue.h>
 
 #include "SNAPSHOT.h"
 #include "list.h"
@@ -34,6 +37,15 @@
 #define ESWITCH_INLINE_MODE_LINK "link"
 #define ESWITCH_INLINE_MODE_NETWORK "network"
 #define ESWITCH_INLINE_MODE_TRANSPORT "transport"
+
+#define PARAM_CMODE_RUNTIME_STR "runtime"
+#define PARAM_CMODE_DRIVERINIT_STR "driverinit"
+#define PARAM_CMODE_PERMANENT_STR "permanent"
+#define DL_ARGS_REQUIRED_MAX_ERR_LEN 80
+
+#define HEALTH_REPORTER_STATE_HEALTHY_STR "healthy"
+#define HEALTH_REPORTER_STATE_ERROR_STR "error"
+#define HEALTH_REPORTER_TIMESTAMP_FMT_LEN 80
 
 static int g_new_line_count;
 
@@ -187,6 +199,18 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_ESWITCH_ENCAP_MODE	BIT(15)
 #define DL_OPT_RESOURCE_PATH	BIT(16)
 #define DL_OPT_RESOURCE_SIZE	BIT(17)
+#define DL_OPT_PARAM_NAME	BIT(18)
+#define DL_OPT_PARAM_VALUE	BIT(19)
+#define DL_OPT_PARAM_CMODE	BIT(20)
+#define DL_OPT_HANDLE_REGION		BIT(21)
+#define DL_OPT_REGION_SNAPSHOT_ID	BIT(22)
+#define DL_OPT_REGION_ADDRESS		BIT(23)
+#define DL_OPT_REGION_LENGTH		BIT(24)
+#define DL_OPT_FLASH_FILE_NAME	BIT(25)
+#define DL_OPT_FLASH_COMPONENT	BIT(26)
+#define DL_OPT_HEALTH_REPORTER_NAME	BIT(27)
+#define DL_OPT_HEALTH_REPORTER_GRACEFUL_PERIOD	BIT(27)
+#define DL_OPT_HEALTH_REPORTER_AUTO_RECOVER	BIT(28)
 
 struct dl_opts {
 	uint32_t present; /* flags of present items */
@@ -211,6 +235,18 @@ struct dl_opts {
 	uint32_t resource_size;
 	uint32_t resource_id;
 	bool resource_id_valid;
+	const char *param_name;
+	const char *param_value;
+	enum devlink_param_cmode cmode;
+	char *region_name;
+	uint32_t region_snapshot_id;
+	uint64_t region_address;
+	uint64_t region_length;
+	const char *flash_file_name;
+	const char *flash_component;
+	const char *reporter_name;
+	uint64_t reporter_graceful_period;
+	bool reporter_auto_recover;
 };
 
 struct dl {
@@ -348,6 +384,36 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_DPIPE_FIELD_ID] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_DPIPE_FIELD_BITWIDTH] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_DPIPE_FIELD_MAPPING_TYPE] = MNL_TYPE_U32,
+	[DEVLINK_ATTR_PARAM] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_PARAM_NAME] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_PARAM_TYPE] = MNL_TYPE_U8,
+	[DEVLINK_ATTR_PARAM_VALUES_LIST] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_PARAM_VALUE] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_PARAM_VALUE_CMODE] = MNL_TYPE_U8,
+	[DEVLINK_ATTR_REGION_NAME] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_REGION_SIZE] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_REGION_SNAPSHOTS] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_REGION_SNAPSHOT] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_REGION_SNAPSHOT_ID] = MNL_TYPE_U32,
+	[DEVLINK_ATTR_REGION_CHUNKS] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_REGION_CHUNK] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_REGION_CHUNK_DATA] = MNL_TYPE_BINARY,
+	[DEVLINK_ATTR_REGION_CHUNK_ADDR] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_REGION_CHUNK_LEN] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_INFO_DRIVER_NAME] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_INFO_SERIAL_NUMBER] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_INFO_VERSION_FIXED] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_INFO_VERSION_RUNNING] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_INFO_VERSION_STORED] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_INFO_VERSION_NAME] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_INFO_VERSION_VALUE] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_HEALTH_REPORTER] = MNL_TYPE_NESTED,
+	[DEVLINK_ATTR_HEALTH_REPORTER_NAME] = MNL_TYPE_STRING,
+	[DEVLINK_ATTR_HEALTH_REPORTER_STATE] = MNL_TYPE_U8,
+	[DEVLINK_ATTR_HEALTH_REPORTER_ERR_COUNT] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_HEALTH_REPORTER_RECOVER_COUNT] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_HEALTH_REPORTER_DUMP_TS] = MNL_TYPE_U64,
+	[DEVLINK_ATTR_HEALTH_REPORTER_GRACEFUL_PERIOD] = MNL_TYPE_U64,
 };
 
 static int attr_cb(const struct nlattr *attr, void *data)
@@ -486,6 +552,20 @@ static int strslashrsplit(char *str, char **before, char **after)
 	return 0;
 }
 
+static int strtouint64_t(const char *str, uint64_t *p_val)
+{
+	char *endptr;
+	unsigned long long int val;
+
+	val = strtoull(str, &endptr, 10);
+	if (endptr == str || *endptr != '\0')
+		return -EINVAL;
+	if (val > ULONG_MAX)
+		return -ERANGE;
+	*p_val = val;
+	return 0;
+}
+
 static int strtouint32_t(const char *str, uint32_t *p_val)
 {
 	char *endptr;
@@ -510,6 +590,34 @@ static int strtouint16_t(const char *str, uint16_t *p_val)
 		return -EINVAL;
 	if (val > USHRT_MAX)
 		return -ERANGE;
+	*p_val = val;
+	return 0;
+}
+
+static int strtouint8_t(const char *str, uint8_t *p_val)
+{
+	char *endptr;
+	unsigned long int val;
+
+	val = strtoul(str, &endptr, 10);
+	if (endptr == str || *endptr != '\0')
+		return -EINVAL;
+	if (val > UCHAR_MAX)
+		return -ERANGE;
+	*p_val = val;
+	return 0;
+}
+
+static int strtobool(const char *str, bool *p_val)
+{
+	bool val;
+
+	if (!strcmp(str, "true") || !strcmp(str, "1"))
+		val = true;
+	else if (!strcmp(str, "false") || !strcmp(str, "0"))
+		val = false;
+	else
+		return -EINVAL;
 	*p_val = val;
 	return 0;
 }
@@ -643,6 +751,64 @@ static int dl_argv_handle_both(struct dl *dl, char **p_bus_name,
 	return 0;
 }
 
+static int __dl_argv_handle_region(char *str, char **p_bus_name,
+				   char **p_dev_name, char **p_region)
+{
+	char *handlestr;
+	int err;
+
+	err = strslashrsplit(str, &handlestr, p_region);
+	if (err) {
+		pr_err("Region identification \"%s\" is invalid\n", str);
+		return err;
+	}
+	err = strslashrsplit(handlestr, p_bus_name, p_dev_name);
+	if (err) {
+		pr_err("Region identification \"%s\" is invalid\n", str);
+		return err;
+	}
+	return 0;
+}
+
+static int dl_argv_handle_region(struct dl *dl, char **p_bus_name,
+					char **p_dev_name, char **p_region)
+{
+	char *str = dl_argv_next(dl);
+	unsigned int slash_count;
+
+	if (!str) {
+		pr_err("Expected \"bus_name/dev_name/region\" identification.\n");
+		return -EINVAL;
+	}
+
+	slash_count = strslashcount(str);
+	if (slash_count != 2) {
+		pr_err("Wrong region identification string format.\n");
+		pr_err("Expected \"bus_name/dev_name/region\" identification.\n"".\n");
+		return -EINVAL;
+	}
+
+	return __dl_argv_handle_region(str, p_bus_name, p_dev_name, p_region);
+}
+
+static int dl_argv_uint64_t(struct dl *dl, uint64_t *p_val)
+{
+	char *str = dl_argv_next(dl);
+	int err;
+
+	if (!str) {
+		pr_err("Unsigned number argument expected\n");
+		return -EINVAL;
+	}
+
+	err = strtouint64_t(str, p_val);
+	if (err) {
+		pr_err("\"%s\" is not a number or not within range\n", str);
+		return err;
+	}
+	return 0;
+}
+
 static int dl_argv_uint32_t(struct dl *dl, uint32_t *p_val)
 {
 	char *str = dl_argv_next(dl);
@@ -674,6 +840,24 @@ static int dl_argv_uint16_t(struct dl *dl, uint16_t *p_val)
 	err = strtouint16_t(str, p_val);
 	if (err) {
 		pr_err("\"%s\" is not a number or not within range\n", str);
+		return err;
+	}
+	return 0;
+}
+
+static int dl_argv_bool(struct dl *dl, bool *p_val)
+{
+	char *str = dl_argv_next(dl);
+	int err;
+
+	if (!str) {
+		pr_err("Boolean argument expected\n");
+		return -EINVAL;
+	}
+
+	err = strtobool(str, p_val);
+	if (err) {
+		pr_err("\"%s\" is not a valid boolean value\n", str);
 		return err;
 	}
 	return 0;
@@ -792,6 +976,66 @@ static int eswitch_encap_mode_get(const char *typestr, bool *p_mode)
 	return 0;
 }
 
+static int param_cmode_get(const char *cmodestr,
+			   enum devlink_param_cmode *cmode)
+{
+	if (strcmp(cmodestr, PARAM_CMODE_RUNTIME_STR) == 0) {
+		*cmode = DEVLINK_PARAM_CMODE_RUNTIME;
+	} else if (strcmp(cmodestr, PARAM_CMODE_DRIVERINIT_STR) == 0) {
+		*cmode = DEVLINK_PARAM_CMODE_DRIVERINIT;
+	} else if (strcmp(cmodestr, PARAM_CMODE_PERMANENT_STR) == 0) {
+		*cmode = DEVLINK_PARAM_CMODE_PERMANENT;
+	} else {
+		pr_err("Unknown configuration mode \"%s\"\n", cmodestr);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+struct dl_args_metadata {
+	uint32_t o_flag;
+	char err_msg[DL_ARGS_REQUIRED_MAX_ERR_LEN];
+};
+
+static const struct dl_args_metadata dl_args_required[] = {
+	{DL_OPT_PORT_TYPE,	      "Port type not set."},
+	{DL_OPT_PORT_COUNT,	      "Port split count option expected."},
+	{DL_OPT_SB_POOL,	      "Pool index option expected."},
+	{DL_OPT_SB_SIZE,	      "Pool size option expected."},
+	{DL_OPT_SB_TYPE,	      "Pool type option expected."},
+	{DL_OPT_SB_THTYPE,	      "Pool threshold type option expected."},
+	{DL_OPT_SB_TH,		      "Threshold option expected."},
+	{DL_OPT_SB_TC,		      "TC index option expected."},
+	{DL_OPT_ESWITCH_MODE,	      "E-Switch mode option expected."},
+	{DL_OPT_ESWITCH_INLINE_MODE,  "E-Switch inline-mode option expected."},
+	{DL_OPT_DPIPE_TABLE_NAME,     "Dpipe table name expected."},
+	{DL_OPT_DPIPE_TABLE_COUNTERS, "Dpipe table counter state expected."},
+	{DL_OPT_ESWITCH_ENCAP_MODE,   "E-Switch encapsulation option expected."},
+	{DL_OPT_PARAM_NAME,	      "Parameter name expected."},
+	{DL_OPT_PARAM_VALUE,	      "Value to set expected."},
+	{DL_OPT_PARAM_CMODE,	      "Configuration mode expected."},
+	{DL_OPT_REGION_SNAPSHOT_ID,   "Region snapshot id expected."},
+	{DL_OPT_REGION_ADDRESS,	      "Region address value expected."},
+	{DL_OPT_REGION_LENGTH,	      "Region length value expected."},
+	{DL_OPT_HEALTH_REPORTER_NAME, "Reporter's name is expected."},
+};
+
+static int dl_args_finding_required_validate(uint32_t o_required,
+					     uint32_t o_found)
+{
+	uint32_t o_flag;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(dl_args_required); i++) {
+		o_flag = dl_args_required[i].o_flag;
+		if ((o_required & o_flag) && !(o_found & o_flag)) {
+			pr_err("%s\n", dl_args_required[i].err_msg);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
 static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			 uint32_t o_optional)
 {
@@ -819,6 +1063,13 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 		if (err)
 			return err;
 		o_found |= DL_OPT_HANDLEP;
+	} else if (o_required & DL_OPT_HANDLE_REGION) {
+		err = dl_argv_handle_region(dl, &opts->bus_name,
+					    &opts->dev_name,
+					    &opts->region_name);
+		if (err)
+			return err;
+		o_found |= DL_OPT_HANDLE_REGION;
 	}
 
 	while (dl_argc(dl)) {
@@ -973,6 +1224,89 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 			if (err)
 				return err;
 			o_found |= DL_OPT_RESOURCE_SIZE;
+		} else if (dl_argv_match(dl, "name") &&
+			   (o_all & DL_OPT_PARAM_NAME)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->param_name);
+			if (err)
+				return err;
+			o_found |= DL_OPT_PARAM_NAME;
+		} else if (dl_argv_match(dl, "value") &&
+			   (o_all & DL_OPT_PARAM_VALUE)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->param_value);
+			if (err)
+				return err;
+			o_found |= DL_OPT_PARAM_VALUE;
+		} else if (dl_argv_match(dl, "cmode") &&
+			   (o_all & DL_OPT_PARAM_CMODE)) {
+			const char *cmodestr;
+
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &cmodestr);
+			if (err)
+				return err;
+			err = param_cmode_get(cmodestr, &opts->cmode);
+			if (err)
+				return err;
+			o_found |= DL_OPT_PARAM_CMODE;
+		} else if (dl_argv_match(dl, "snapshot") &&
+			   (o_all & DL_OPT_REGION_SNAPSHOT_ID)) {
+			dl_arg_inc(dl);
+			err = dl_argv_uint32_t(dl, &opts->region_snapshot_id);
+			if (err)
+				return err;
+			o_found |= DL_OPT_REGION_SNAPSHOT_ID;
+		} else if (dl_argv_match(dl, "address") &&
+			   (o_all & DL_OPT_REGION_ADDRESS)) {
+			dl_arg_inc(dl);
+			err = dl_argv_uint64_t(dl, &opts->region_address);
+			if (err)
+				return err;
+			o_found |= DL_OPT_REGION_ADDRESS;
+		} else if (dl_argv_match(dl, "length") &&
+			   (o_all & DL_OPT_REGION_LENGTH)) {
+			dl_arg_inc(dl);
+			err = dl_argv_uint64_t(dl, &opts->region_length);
+			if (err)
+				return err;
+			o_found |= DL_OPT_REGION_LENGTH;
+		} else if (dl_argv_match(dl, "file") &&
+			   (o_all & DL_OPT_FLASH_FILE_NAME)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->flash_file_name);
+			if (err)
+				return err;
+			o_found |= DL_OPT_FLASH_FILE_NAME;
+		} else if (dl_argv_match(dl, "component") &&
+			   (o_all & DL_OPT_FLASH_COMPONENT)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->flash_component);
+			if (err)
+				return err;
+			o_found |= DL_OPT_FLASH_COMPONENT;
+		} else if (dl_argv_match(dl, "reporter") &&
+			   (o_all & DL_OPT_HEALTH_REPORTER_NAME)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->reporter_name);
+			if (err)
+				return err;
+			o_found |= DL_OPT_HEALTH_REPORTER_NAME;
+		} else if (dl_argv_match(dl, "grace_period") &&
+			   (o_all & DL_OPT_HEALTH_REPORTER_GRACEFUL_PERIOD)) {
+			dl_arg_inc(dl);
+			err = dl_argv_uint64_t(dl,
+					       &opts->reporter_graceful_period);
+			if (err)
+				return err;
+			o_found |= DL_OPT_HEALTH_REPORTER_GRACEFUL_PERIOD;
+		} else if (dl_argv_match(dl, "auto_recover") &&
+			(o_all & DL_OPT_HEALTH_REPORTER_AUTO_RECOVER)) {
+			dl_arg_inc(dl);
+			err = dl_argv_bool(dl, &opts->reporter_auto_recover);
+			if (err)
+				return err;
+			o_found |= DL_OPT_HEALTH_REPORTER_AUTO_RECOVER;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -986,78 +1320,7 @@ static int dl_argv_parse(struct dl *dl, uint32_t o_required,
 		opts->present |= DL_OPT_SB;
 	}
 
-	if ((o_required & DL_OPT_PORT_TYPE) && !(o_found & DL_OPT_PORT_TYPE)) {
-		pr_err("Port type option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_PORT_COUNT) &&
-	    !(o_found & DL_OPT_PORT_COUNT)) {
-		pr_err("Port split count option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_POOL) && !(o_found & DL_OPT_SB_POOL)) {
-		pr_err("Pool index option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_SIZE) && !(o_found & DL_OPT_SB_SIZE)) {
-		pr_err("Pool size option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_TYPE) && !(o_found & DL_OPT_SB_TYPE)) {
-		pr_err("Pool type option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_THTYPE) && !(o_found & DL_OPT_SB_THTYPE)) {
-		pr_err("Pool threshold type option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_TH) && !(o_found & DL_OPT_SB_TH)) {
-		pr_err("Threshold option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_SB_TC) && !(o_found & DL_OPT_SB_TC)) {
-		pr_err("TC index option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_ESWITCH_MODE) &&
-	    !(o_found & DL_OPT_ESWITCH_MODE)) {
-		pr_err("E-Switch mode option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_ESWITCH_INLINE_MODE) &&
-	    !(o_found & DL_OPT_ESWITCH_INLINE_MODE)) {
-		pr_err("E-Switch inline-mode option expected.\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_DPIPE_TABLE_NAME) &&
-	    !(o_found & DL_OPT_DPIPE_TABLE_NAME)) {
-		pr_err("Dpipe table name expected\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_DPIPE_TABLE_COUNTERS) &&
-	    !(o_found & DL_OPT_DPIPE_TABLE_COUNTERS)) {
-		pr_err("Dpipe table counter state expected\n");
-		return -EINVAL;
-	}
-
-	if ((o_required & DL_OPT_ESWITCH_ENCAP_MODE) &&
-	    !(o_found & DL_OPT_ESWITCH_ENCAP_MODE)) {
-		pr_err("E-Switch encapsulation option expected.\n");
-		return -EINVAL;
-	}
-
-	return 0;
+	return dl_args_finding_required_validate(o_required, o_found);
 }
 
 static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
@@ -1072,6 +1335,11 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_DEV_NAME, opts->dev_name);
 		mnl_attr_put_u32(nlh, DEVLINK_ATTR_PORT_INDEX,
 				 opts->port_index);
+	} else if (opts->present & DL_OPT_HANDLE_REGION) {
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_BUS_NAME, opts->bus_name);
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_DEV_NAME, opts->dev_name);
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_REGION_NAME,
+				  opts->region_name);
 	}
 	if (opts->present & DL_OPT_PORT_TYPE)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_PORT_TYPE,
@@ -1121,6 +1389,38 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_RESOURCE_SIZE)
 		mnl_attr_put_u64(nlh, DEVLINK_ATTR_RESOURCE_SIZE,
 				 opts->resource_size);
+	if (opts->present & DL_OPT_PARAM_NAME)
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_PARAM_NAME,
+				  opts->param_name);
+	if (opts->present & DL_OPT_PARAM_CMODE)
+		mnl_attr_put_u8(nlh, DEVLINK_ATTR_PARAM_VALUE_CMODE,
+				opts->cmode);
+	if (opts->present & DL_OPT_REGION_SNAPSHOT_ID)
+		mnl_attr_put_u32(nlh, DEVLINK_ATTR_REGION_SNAPSHOT_ID,
+				 opts->region_snapshot_id);
+	if (opts->present & DL_OPT_REGION_ADDRESS)
+		mnl_attr_put_u64(nlh, DEVLINK_ATTR_REGION_CHUNK_ADDR,
+				 opts->region_address);
+	if (opts->present & DL_OPT_REGION_LENGTH)
+		mnl_attr_put_u64(nlh, DEVLINK_ATTR_REGION_CHUNK_LEN,
+				 opts->region_length);
+	if (opts->present & DL_OPT_FLASH_FILE_NAME)
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_FLASH_UPDATE_FILE_NAME,
+				  opts->flash_file_name);
+	if (opts->present & DL_OPT_FLASH_COMPONENT)
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_FLASH_UPDATE_COMPONENT,
+				  opts->flash_component);
+	if (opts->present & DL_OPT_HEALTH_REPORTER_NAME)
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_HEALTH_REPORTER_NAME,
+				  opts->reporter_name);
+	if (opts->present & DL_OPT_HEALTH_REPORTER_GRACEFUL_PERIOD)
+		mnl_attr_put_u64(nlh,
+				 DEVLINK_ATTR_HEALTH_REPORTER_GRACEFUL_PERIOD,
+				 opts->reporter_graceful_period);
+	if (opts->present & DL_OPT_HEALTH_REPORTER_AUTO_RECOVER)
+		mnl_attr_put_u8(nlh, DEVLINK_ATTR_HEALTH_REPORTER_AUTO_RECOVER,
+				opts->reporter_auto_recover);
+
 }
 
 static int dl_argv_parse_put(struct nlmsghdr *nlh, struct dl *dl,
@@ -1179,7 +1479,11 @@ static void cmd_dev_help(void)
 	pr_err("                               [ inline-mode { none | link | network | transport } ]\n");
 	pr_err("                               [ encap { disable | enable } ]\n");
 	pr_err("       devlink dev eswitch show DEV\n");
+	pr_err("       devlink dev param set DEV name PARAMETER value VALUE cmode { permanent | driverinit | runtime }\n");
+	pr_err("       devlink dev param show [DEV name PARAMETER]\n");
 	pr_err("       devlink dev reload DEV\n");
+	pr_err("       devlink dev info [ DEV ]\n");
+	pr_err("       devlink dev flash DEV file PATH [ component NAME ]\n");
 }
 
 static bool cmp_arr_last_handle(struct dl *dl, const char *bus_name,
@@ -1393,6 +1697,14 @@ static void pr_out_str(struct dl *dl, const char *name, const char *val)
 	}
 }
 
+static void pr_out_bool(struct dl *dl, const char *name, bool val)
+{
+	if (dl->json_output)
+		jsonw_bool_field(dl->jw, name, val);
+	else
+		pr_out_str(dl, name, val ? "true" : "false");
+}
+
 static void pr_out_uint(struct dl *dl, const char *name, unsigned int val)
 {
 	if (dl->json_output) {
@@ -1410,7 +1722,122 @@ static void pr_out_u64(struct dl *dl, const char *name, uint64_t val)
 	if (val == (uint64_t) -1)
 		return pr_out_str(dl, name, "unlimited");
 
-	return pr_out_uint(dl, name, val);
+	if (dl->json_output) {
+		jsonw_u64_field(dl->jw, name, val);
+	} else {
+		if (g_indent_newline)
+			pr_out("%s %lu", name, val);
+		else
+			pr_out(" %s %lu", name, val);
+	}
+}
+
+static void pr_out_bool_value(struct dl *dl, bool value)
+{
+	if (dl->json_output)
+		jsonw_bool(dl->jw, value);
+	else
+		pr_out(" %s", value ? "true" : "false");
+}
+
+static void pr_out_uint_value(struct dl *dl, unsigned int value)
+{
+	if (dl->json_output)
+		jsonw_uint(dl->jw, value);
+	else
+		pr_out(" %u", value);
+}
+
+static void pr_out_uint64_value(struct dl *dl, uint64_t value)
+{
+	if (dl->json_output)
+		jsonw_u64(dl->jw, value);
+	else
+		pr_out(" %lu", value);
+}
+
+static void pr_out_binary_value(struct dl *dl, uint8_t *data, uint32_t len)
+{
+	int i = 1;
+
+	if (dl->json_output)
+		jsonw_start_array(dl->jw);
+	else
+		pr_out("\n");
+
+	while (i < len) {
+		if (dl->json_output) {
+			jsonw_printf(dl->jw, "%d", data[i]);
+		} else {
+			pr_out(" %02x", data[i]);
+			if (!(i % 16))
+				pr_out("\n");
+		}
+		i++;
+	}
+	if (dl->json_output)
+		jsonw_end_array(dl->jw);
+	else if ((i - 1) % 16)
+		pr_out("\n");
+}
+
+static void pr_out_str_value(struct dl *dl, const char *value)
+{
+	if (dl->json_output)
+		jsonw_string(dl->jw, value);
+	else
+		pr_out(" %s", value);
+}
+
+static void pr_out_name(struct dl *dl, const char *name)
+{
+	if (dl->json_output)
+		jsonw_name(dl->jw, name);
+	else
+		pr_out(" %s:", name);
+}
+
+static void pr_out_region_chunk_start(struct dl *dl, uint64_t addr)
+{
+	if (dl->json_output) {
+		jsonw_name(dl->jw, "address");
+		jsonw_uint(dl->jw, addr);
+		jsonw_name(dl->jw, "data");
+		jsonw_start_array(dl->jw);
+	}
+}
+
+static void pr_out_region_chunk_end(struct dl *dl)
+{
+	if (dl->json_output)
+		jsonw_end_array(dl->jw);
+}
+
+static void pr_out_region_chunk(struct dl *dl, uint8_t *data, uint32_t len,
+				uint64_t addr)
+{
+	static uint64_t align_val;
+	uint32_t i = 0;
+
+	pr_out_region_chunk_start(dl, addr);
+	while (i < len) {
+		if (!dl->json_output)
+			if (!(align_val % 16))
+				pr_out("%s%016"PRIx64" ",
+				       align_val ? "\n" : "",
+				       addr);
+
+		align_val++;
+
+		if (dl->json_output)
+			jsonw_printf(dl->jw, "%d", data[i]);
+		else
+			pr_out("%02x ", data[i]);
+
+		addr++;
+		i++;
+	}
+	pr_out_region_chunk_end(dl);
 }
 
 static void pr_out_dev(struct dl *dl, struct nlattr **tb)
@@ -1461,6 +1888,30 @@ static void pr_out_array_end(struct dl *dl)
 	}
 }
 
+static void pr_out_object_start(struct dl *dl, const char *name)
+{
+	if (dl->json_output) {
+		jsonw_name(dl->jw, name);
+		jsonw_start_object(dl->jw);
+	} else {
+		__pr_out_indent_inc();
+		__pr_out_newline();
+		pr_out("%s:", name);
+		__pr_out_indent_inc();
+		__pr_out_newline();
+	}
+}
+
+static void pr_out_object_end(struct dl *dl)
+{
+	if (dl->json_output) {
+		jsonw_end_object(dl->jw);
+	} else {
+		__pr_out_indent_dec();
+		__pr_out_indent_dec();
+	}
+}
+
 static void pr_out_entry_start(struct dl *dl)
 {
 	if (dl->json_output)
@@ -1473,6 +1924,19 @@ static void pr_out_entry_end(struct dl *dl)
 		jsonw_end_object(dl->jw);
 	else
 		__pr_out_newline();
+}
+
+static const char *param_cmode_name(uint8_t cmode)
+{
+	switch (cmode) {
+	case DEVLINK_PARAM_CMODE_RUNTIME:
+		return PARAM_CMODE_RUNTIME_STR;
+	case DEVLINK_PARAM_CMODE_DRIVERINIT:
+		return PARAM_CMODE_DRIVERINIT_STR;
+	case DEVLINK_PARAM_CMODE_PERMANENT:
+		return PARAM_CMODE_PERMANENT_STR;
+	default: return "<unknown type>";
+	}
 }
 
 static const char *eswitch_mode_name(uint32_t mode)
@@ -1593,6 +2057,440 @@ static int cmd_dev_eswitch(struct dl *dl)
 	return -ENOENT;
 }
 
+struct param_val_conv {
+	const char *name;
+	const char *vstr;
+	uint32_t vuint;
+};
+
+static bool param_val_conv_exists(const struct param_val_conv *param_val_conv,
+				  uint32_t len, const char *name)
+{
+	uint32_t i;
+
+	for (i = 0; i < len; i++)
+		if (!strcmp(param_val_conv[i].name, name))
+			return true;
+
+	return false;
+}
+
+static int
+param_val_conv_uint_get(const struct param_val_conv *param_val_conv,
+			uint32_t len, const char *name, const char *vstr,
+			uint32_t *vuint)
+{
+	uint32_t i;
+
+	for (i = 0; i < len; i++)
+		if (!strcmp(param_val_conv[i].name, name) &&
+		    !strcmp(param_val_conv[i].vstr, vstr)) {
+			*vuint = param_val_conv[i].vuint;
+			return 0;
+		}
+
+	return -ENOENT;
+}
+
+static int
+param_val_conv_str_get(const struct param_val_conv *param_val_conv,
+		       uint32_t len, const char *name, uint32_t vuint,
+		       const char **vstr)
+{
+	uint32_t i;
+
+	for (i = 0; i < len; i++)
+		if (!strcmp(param_val_conv[i].name, name) &&
+		    param_val_conv[i].vuint == vuint) {
+			*vstr = param_val_conv[i].vstr;
+			return 0;
+		}
+
+	return -ENOENT;
+}
+
+static const struct param_val_conv param_val_conv[] = {
+	{
+		.name = "fw_load_policy",
+		.vstr = "driver",
+		.vuint = DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_DRIVER,
+	},
+	{
+		.name = "fw_load_policy",
+		.vstr = "flash",
+		.vuint = DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_FLASH,
+	},
+};
+
+#define PARAM_VAL_CONV_LEN ARRAY_SIZE(param_val_conv)
+
+static void pr_out_param_value(struct dl *dl, const char *nla_name,
+			       int nla_type, struct nlattr *nl)
+{
+	struct nlattr *nla_value[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *val_attr;
+	const char *vstr;
+	bool conv_exists;
+	int err;
+
+	err = mnl_attr_parse_nested(nl, attr_cb, nla_value);
+	if (err != MNL_CB_OK)
+		return;
+
+	if (!nla_value[DEVLINK_ATTR_PARAM_VALUE_CMODE] ||
+	    (nla_type != MNL_TYPE_FLAG &&
+	     !nla_value[DEVLINK_ATTR_PARAM_VALUE_DATA]))
+		return;
+
+	pr_out_str(dl, "cmode",
+		   param_cmode_name(mnl_attr_get_u8(nla_value[DEVLINK_ATTR_PARAM_VALUE_CMODE])));
+	val_attr = nla_value[DEVLINK_ATTR_PARAM_VALUE_DATA];
+
+	conv_exists = param_val_conv_exists(param_val_conv, PARAM_VAL_CONV_LEN,
+					    nla_name);
+
+	switch (nla_type) {
+	case MNL_TYPE_U8:
+		if (conv_exists) {
+			err = param_val_conv_str_get(param_val_conv,
+						     PARAM_VAL_CONV_LEN,
+						     nla_name,
+						     mnl_attr_get_u8(val_attr),
+						     &vstr);
+			if (err)
+				return;
+			pr_out_str(dl, "value", vstr);
+		} else {
+			pr_out_uint(dl, "value", mnl_attr_get_u8(val_attr));
+		}
+		break;
+	case MNL_TYPE_U16:
+		if (conv_exists) {
+			err = param_val_conv_str_get(param_val_conv,
+						     PARAM_VAL_CONV_LEN,
+						     nla_name,
+						     mnl_attr_get_u16(val_attr),
+						     &vstr);
+			if (err)
+				return;
+			pr_out_str(dl, "value", vstr);
+		} else {
+			pr_out_uint(dl, "value", mnl_attr_get_u16(val_attr));
+		}
+		break;
+	case MNL_TYPE_U32:
+		if (conv_exists) {
+			err = param_val_conv_str_get(param_val_conv,
+						     PARAM_VAL_CONV_LEN,
+						     nla_name,
+						     mnl_attr_get_u32(val_attr),
+						     &vstr);
+			if (err)
+				return;
+			pr_out_str(dl, "value", vstr);
+		} else {
+			pr_out_uint(dl, "value", mnl_attr_get_u32(val_attr));
+		}
+		break;
+	case MNL_TYPE_STRING:
+		pr_out_str(dl, "value", mnl_attr_get_str(val_attr));
+		break;
+	case MNL_TYPE_FLAG:
+		pr_out_bool(dl, "value", val_attr ? true : false);
+		break;
+	}
+}
+
+static void pr_out_param(struct dl *dl, struct nlattr **tb, bool array)
+{
+	struct nlattr *nla_param[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *param_value_attr;
+	const char *nla_name;
+	int nla_type;
+	int err;
+
+	err = mnl_attr_parse_nested(tb[DEVLINK_ATTR_PARAM], attr_cb, nla_param);
+	if (err != MNL_CB_OK)
+		return;
+	if (!nla_param[DEVLINK_ATTR_PARAM_NAME] ||
+	    !nla_param[DEVLINK_ATTR_PARAM_TYPE] ||
+	    !nla_param[DEVLINK_ATTR_PARAM_VALUES_LIST])
+		return;
+
+	if (array)
+		pr_out_handle_start_arr(dl, tb);
+	else
+		__pr_out_handle_start(dl, tb, true, false);
+
+	nla_type = mnl_attr_get_u8(nla_param[DEVLINK_ATTR_PARAM_TYPE]);
+
+	nla_name = mnl_attr_get_str(nla_param[DEVLINK_ATTR_PARAM_NAME]);
+	pr_out_str(dl, "name", nla_name);
+
+	if (!nla_param[DEVLINK_ATTR_PARAM_GENERIC])
+		pr_out_str(dl, "type", "driver-specific");
+	else
+		pr_out_str(dl, "type", "generic");
+
+	pr_out_array_start(dl, "values");
+	mnl_attr_for_each_nested(param_value_attr,
+				 nla_param[DEVLINK_ATTR_PARAM_VALUES_LIST]) {
+		pr_out_entry_start(dl);
+		pr_out_param_value(dl, nla_name, nla_type, param_value_attr);
+		pr_out_entry_end(dl);
+	}
+	pr_out_array_end(dl);
+	pr_out_handle_end(dl);
+}
+
+static int cmd_dev_param_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_PARAM])
+		return MNL_CB_ERROR;
+	pr_out_param(dl, tb, true);
+	return MNL_CB_OK;
+}
+
+struct param_ctx {
+	struct dl *dl;
+	int nla_type;
+	union {
+		uint8_t vu8;
+		uint16_t vu16;
+		uint32_t vu32;
+		const char *vstr;
+		bool vbool;
+	} value;
+};
+
+static int cmd_dev_param_set_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *nla_param[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *param_value_attr;
+	enum devlink_param_cmode cmode;
+	struct param_ctx *ctx = data;
+	struct dl *dl = ctx->dl;
+	int nla_type;
+	int err;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_PARAM])
+		return MNL_CB_ERROR;
+
+	err = mnl_attr_parse_nested(tb[DEVLINK_ATTR_PARAM], attr_cb, nla_param);
+	if (err != MNL_CB_OK)
+		return MNL_CB_ERROR;
+
+	if (!nla_param[DEVLINK_ATTR_PARAM_TYPE] ||
+	    !nla_param[DEVLINK_ATTR_PARAM_VALUES_LIST])
+		return MNL_CB_ERROR;
+
+	nla_type = mnl_attr_get_u8(nla_param[DEVLINK_ATTR_PARAM_TYPE]);
+	mnl_attr_for_each_nested(param_value_attr,
+				 nla_param[DEVLINK_ATTR_PARAM_VALUES_LIST]) {
+		struct nlattr *nla_value[DEVLINK_ATTR_MAX + 1] = {};
+		struct nlattr *val_attr;
+
+		err = mnl_attr_parse_nested(param_value_attr,
+					    attr_cb, nla_value);
+		if (err != MNL_CB_OK)
+			return MNL_CB_ERROR;
+
+		if (!nla_value[DEVLINK_ATTR_PARAM_VALUE_CMODE] ||
+		    (nla_type != MNL_TYPE_FLAG &&
+		     !nla_value[DEVLINK_ATTR_PARAM_VALUE_DATA]))
+			return MNL_CB_ERROR;
+
+		cmode = mnl_attr_get_u8(nla_value[DEVLINK_ATTR_PARAM_VALUE_CMODE]);
+		if (cmode == dl->opts.cmode) {
+			val_attr = nla_value[DEVLINK_ATTR_PARAM_VALUE_DATA];
+			switch (nla_type) {
+			case MNL_TYPE_U8:
+				ctx->value.vu8 = mnl_attr_get_u8(val_attr);
+				break;
+			case MNL_TYPE_U16:
+				ctx->value.vu16 = mnl_attr_get_u16(val_attr);
+				break;
+			case MNL_TYPE_U32:
+				ctx->value.vu32 = mnl_attr_get_u32(val_attr);
+				break;
+			case MNL_TYPE_STRING:
+				ctx->value.vstr = mnl_attr_get_str(val_attr);
+				break;
+			case MNL_TYPE_FLAG:
+				ctx->value.vbool = val_attr ? true : false;
+				break;
+			}
+			break;
+		}
+	}
+	ctx->nla_type = nla_type;
+	return MNL_CB_OK;
+}
+
+static int cmd_dev_param_set(struct dl *dl)
+{
+	struct param_ctx ctx = {};
+	struct nlmsghdr *nlh;
+	bool conv_exists;
+	uint32_t val_u32;
+	uint16_t val_u16;
+	uint8_t val_u8;
+	bool val_bool;
+	int err;
+
+	err = dl_argv_parse(dl, DL_OPT_HANDLE |
+			    DL_OPT_PARAM_NAME |
+			    DL_OPT_PARAM_VALUE |
+			    DL_OPT_PARAM_CMODE, 0);
+	if (err)
+		return err;
+
+	/* Get value type */
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_PARAM_GET,
+			       NLM_F_REQUEST | NLM_F_ACK);
+	dl_opts_put(nlh, dl);
+
+	ctx.dl = dl;
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_dev_param_set_cb, &ctx);
+	if (err)
+		return err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_PARAM_SET,
+			       NLM_F_REQUEST | NLM_F_ACK);
+	dl_opts_put(nlh, dl);
+
+	conv_exists = param_val_conv_exists(param_val_conv, PARAM_VAL_CONV_LEN,
+					    dl->opts.param_name);
+
+	mnl_attr_put_u8(nlh, DEVLINK_ATTR_PARAM_TYPE, ctx.nla_type);
+	switch (ctx.nla_type) {
+	case MNL_TYPE_U8:
+		if (conv_exists) {
+			err = param_val_conv_uint_get(param_val_conv,
+						      PARAM_VAL_CONV_LEN,
+						      dl->opts.param_name,
+						      dl->opts.param_value,
+						      &val_u32);
+			val_u8 = val_u32;
+		} else {
+			err = strtouint8_t(dl->opts.param_value, &val_u8);
+		}
+		if (err)
+			goto err_param_value_parse;
+		if (val_u8 == ctx.value.vu8)
+			return 0;
+		mnl_attr_put_u8(nlh, DEVLINK_ATTR_PARAM_VALUE_DATA, val_u8);
+		break;
+	case MNL_TYPE_U16:
+		if (conv_exists) {
+			err = param_val_conv_uint_get(param_val_conv,
+						      PARAM_VAL_CONV_LEN,
+						      dl->opts.param_name,
+						      dl->opts.param_value,
+						      &val_u32);
+			val_u16 = val_u32;
+		} else {
+			err = strtouint16_t(dl->opts.param_value, &val_u16);
+		}
+		if (err)
+			goto err_param_value_parse;
+		if (val_u16 == ctx.value.vu16)
+			return 0;
+		mnl_attr_put_u16(nlh, DEVLINK_ATTR_PARAM_VALUE_DATA, val_u16);
+		break;
+	case MNL_TYPE_U32:
+		if (conv_exists)
+			err = param_val_conv_uint_get(param_val_conv,
+						      PARAM_VAL_CONV_LEN,
+						      dl->opts.param_name,
+						      dl->opts.param_value,
+						      &val_u32);
+		else
+			err = strtouint32_t(dl->opts.param_value, &val_u32);
+		if (err)
+			goto err_param_value_parse;
+		if (val_u32 == ctx.value.vu32)
+			return 0;
+		mnl_attr_put_u32(nlh, DEVLINK_ATTR_PARAM_VALUE_DATA, val_u32);
+		break;
+	case MNL_TYPE_FLAG:
+		err = strtobool(dl->opts.param_value, &val_bool);
+		if (err)
+			goto err_param_value_parse;
+		if (val_bool == ctx.value.vbool)
+			return 0;
+		if (val_bool)
+			mnl_attr_put(nlh, DEVLINK_ATTR_PARAM_VALUE_DATA,
+				     0, NULL);
+		break;
+	case MNL_TYPE_STRING:
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_PARAM_VALUE_DATA,
+				  dl->opts.param_value);
+		if (!strcmp(dl->opts.param_value, ctx.value.vstr))
+			return 0;
+		break;
+	default:
+		printf("Value type not supported\n");
+		return -ENOTSUP;
+	}
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+
+err_param_value_parse:
+	pr_err("Value \"%s\" is not a number or not within range\n",
+	       dl->opts.param_value);
+	return err;
+}
+
+static int cmd_dev_param_show(struct dl *dl)
+{
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	struct nlmsghdr *nlh;
+	int err;
+
+	if (dl_argc(dl) == 0)
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_PARAM_GET, flags);
+
+	if (dl_argc(dl) > 0) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE |
+					DL_OPT_PARAM_NAME, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "param");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_dev_param_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static int cmd_dev_param(struct dl *dl)
+{
+	if (dl_argv_match(dl, "help")) {
+		cmd_dev_help();
+		return 0;
+	} else if (dl_argv_match(dl, "show") ||
+		   dl_argv_match(dl, "list") || dl_no_arg(dl)) {
+		dl_arg_inc(dl);
+		return cmd_dev_param_show(dl);
+	} else if (dl_argv_match(dl, "set")) {
+		dl_arg_inc(dl);
+		return cmd_dev_param_set(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
 static int cmd_dev_show_cb(const struct nlmsghdr *nlh, void *data)
 {
 	struct dl *dl = data;
@@ -1654,6 +2552,168 @@ static int cmd_dev_reload(struct dl *dl)
 	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
 }
 
+static void pr_out_versions_single(struct dl *dl, const struct nlmsghdr *nlh,
+				   const char *name, int type)
+{
+	struct nlattr *version;
+
+	mnl_attr_for_each(version, nlh, sizeof(struct genlmsghdr)) {
+		struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+		const char *ver_value;
+		const char *ver_name;
+		int err;
+
+		if (mnl_attr_get_type(version) != type)
+			continue;
+
+		err = mnl_attr_parse_nested(version, attr_cb, tb);
+		if (err != MNL_CB_OK)
+			continue;
+
+		if (!tb[DEVLINK_ATTR_INFO_VERSION_NAME] ||
+		    !tb[DEVLINK_ATTR_INFO_VERSION_VALUE])
+			continue;
+
+		if (name) {
+			pr_out_object_start(dl, name);
+			name = NULL;
+		}
+
+		ver_name = mnl_attr_get_str(tb[DEVLINK_ATTR_INFO_VERSION_NAME]);
+		ver_value = mnl_attr_get_str(tb[DEVLINK_ATTR_INFO_VERSION_VALUE]);
+
+		pr_out_str(dl, ver_name, ver_value);
+		if (!dl->json_output)
+			__pr_out_newline();
+	}
+
+	if (!name)
+		pr_out_object_end(dl);
+}
+
+static void pr_out_info(struct dl *dl, const struct nlmsghdr *nlh,
+			struct nlattr **tb, bool has_versions)
+{
+	__pr_out_handle_start(dl, tb, true, false);
+
+	__pr_out_indent_inc();
+	if (tb[DEVLINK_ATTR_INFO_DRIVER_NAME]) {
+		struct nlattr *nla_drv = tb[DEVLINK_ATTR_INFO_DRIVER_NAME];
+
+		if (!dl->json_output)
+			__pr_out_newline();
+		pr_out_str(dl, "driver", mnl_attr_get_str(nla_drv));
+	}
+
+	if (tb[DEVLINK_ATTR_INFO_SERIAL_NUMBER]) {
+		struct nlattr *nla_sn = tb[DEVLINK_ATTR_INFO_SERIAL_NUMBER];
+
+		if (!dl->json_output)
+			__pr_out_newline();
+		pr_out_str(dl, "serial_number", mnl_attr_get_str(nla_sn));
+	}
+	__pr_out_indent_dec();
+
+	if (has_versions) {
+		pr_out_object_start(dl, "versions");
+
+		pr_out_versions_single(dl, nlh, "fixed",
+				       DEVLINK_ATTR_INFO_VERSION_FIXED);
+		pr_out_versions_single(dl, nlh, "running",
+				       DEVLINK_ATTR_INFO_VERSION_RUNNING);
+		pr_out_versions_single(dl, nlh, "stored",
+				       DEVLINK_ATTR_INFO_VERSION_STORED);
+
+		pr_out_object_end(dl);
+	}
+
+	pr_out_handle_end(dl);
+}
+
+static int cmd_versions_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	bool has_versions, has_info;
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME])
+		return MNL_CB_ERROR;
+
+	has_versions = tb[DEVLINK_ATTR_INFO_VERSION_FIXED] ||
+		tb[DEVLINK_ATTR_INFO_VERSION_RUNNING] ||
+		tb[DEVLINK_ATTR_INFO_VERSION_STORED];
+	has_info = tb[DEVLINK_ATTR_INFO_DRIVER_NAME] ||
+		tb[DEVLINK_ATTR_INFO_SERIAL_NUMBER] ||
+		has_versions;
+
+	if (has_info)
+		pr_out_info(dl, nlh, tb, has_versions);
+
+	return MNL_CB_OK;
+}
+
+static void cmd_dev_info_help(void)
+{
+	pr_err("Usage: devlink dev info [ DEV ]\n");
+}
+
+static int cmd_dev_info(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	int err;
+
+	if (dl_argv_match(dl, "help")) {
+		cmd_dev_info_help();
+		return 0;
+	}
+
+	if (dl_argc(dl) == 0)
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_INFO_GET, flags);
+
+	if (dl_argc(dl) > 0) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "info");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_versions_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static void cmd_dev_flash_help(void)
+{
+	pr_err("Usage: devlink dev flash DEV file PATH [ component NAME ]\n");
+}
+
+static int cmd_dev_flash(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	if (dl_argv_match(dl, "help") || dl_no_arg(dl)) {
+		cmd_dev_flash_help();
+		return 0;
+	}
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_FLASH_UPDATE,
+			       NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE | DL_OPT_FLASH_FILE_NAME,
+				DL_OPT_FLASH_COMPONENT);
+	if (err)
+		return err;
+
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
 static int cmd_dev(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help")) {
@@ -1669,6 +2729,15 @@ static int cmd_dev(struct dl *dl)
 	} else if (dl_argv_match(dl, "reload")) {
 		dl_arg_inc(dl);
 		return cmd_dev_reload(dl);
+	} else if (dl_argv_match(dl, "param")) {
+		dl_arg_inc(dl);
+		return cmd_dev_param(dl);
+	} else if (dl_argv_match(dl, "info")) {
+		dl_arg_inc(dl);
+		return cmd_dev_info(dl);
+	} else if (dl_argv_match(dl, "flash")) {
+		dl_arg_inc(dl);
+		return cmd_dev_flash(dl);
 	}
 	pr_err("Command \"%s\" not found\n", dl_argv(dl));
 	return -ENOENT;
@@ -1958,6 +3027,9 @@ static void pr_out_sb_pool(struct dl *dl, struct nlattr **tb)
 		    mnl_attr_get_u32(tb[DEVLINK_ATTR_SB_POOL_SIZE]));
 	pr_out_str(dl, "thtype",
 		   threshold_type_name(mnl_attr_get_u8(tb[DEVLINK_ATTR_SB_POOL_THRESHOLD_TYPE])));
+	if (tb[DEVLINK_ATTR_SB_POOL_CELL_SIZE])
+		pr_out_uint(dl, "cell_size",
+			    mnl_attr_get_u32(tb[DEVLINK_ATTR_SB_POOL_CELL_SIZE]));
 	pr_out_handle_end(dl);
 }
 
@@ -2632,6 +3704,14 @@ static const char *cmd_name(uint8_t cmd)
 	case DEVLINK_CMD_PORT_SET: return "set";
 	case DEVLINK_CMD_PORT_NEW: return "new";
 	case DEVLINK_CMD_PORT_DEL: return "del";
+	case DEVLINK_CMD_PARAM_GET: return "get";
+	case DEVLINK_CMD_PARAM_SET: return "set";
+	case DEVLINK_CMD_PARAM_NEW: return "new";
+	case DEVLINK_CMD_PARAM_DEL: return "del";
+	case DEVLINK_CMD_REGION_GET: return "get";
+	case DEVLINK_CMD_REGION_SET: return "set";
+	case DEVLINK_CMD_REGION_NEW: return "new";
+	case DEVLINK_CMD_REGION_DEL: return "del";
 	default: return "<unknown cmd>";
 	}
 }
@@ -2650,6 +3730,16 @@ static const char *cmd_obj(uint8_t cmd)
 	case DEVLINK_CMD_PORT_NEW:
 	case DEVLINK_CMD_PORT_DEL:
 		return "port";
+	case DEVLINK_CMD_PARAM_GET:
+	case DEVLINK_CMD_PARAM_SET:
+	case DEVLINK_CMD_PARAM_NEW:
+	case DEVLINK_CMD_PARAM_DEL:
+		return "param";
+	case DEVLINK_CMD_REGION_GET:
+	case DEVLINK_CMD_REGION_SET:
+	case DEVLINK_CMD_REGION_NEW:
+	case DEVLINK_CMD_REGION_DEL:
+		return "region";
 	default: return "<unknown obj>";
 	}
 }
@@ -2673,6 +3763,8 @@ static bool cmd_filter_check(struct dl *dl, uint8_t cmd)
 	}
 	return false;
 }
+
+static void pr_out_region(struct dl *dl, struct nlattr **tb);
 
 static int cmd_mon_show_cb(const struct nlmsghdr *nlh, void *data)
 {
@@ -2705,6 +3797,28 @@ static int cmd_mon_show_cb(const struct nlmsghdr *nlh, void *data)
 			return MNL_CB_ERROR;
 		pr_out_mon_header(genl->cmd);
 		pr_out_port(dl, tb);
+		break;
+	case DEVLINK_CMD_PARAM_GET: /* fall through */
+	case DEVLINK_CMD_PARAM_SET: /* fall through */
+	case DEVLINK_CMD_PARAM_NEW: /* fall through */
+	case DEVLINK_CMD_PARAM_DEL:
+		mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+		if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+		    !tb[DEVLINK_ATTR_PARAM])
+			return MNL_CB_ERROR;
+		pr_out_mon_header(genl->cmd);
+		pr_out_param(dl, tb, false);
+		break;
+	case DEVLINK_CMD_REGION_GET: /* fall through */
+	case DEVLINK_CMD_REGION_SET: /* fall through */
+	case DEVLINK_CMD_REGION_NEW: /* fall through */
+	case DEVLINK_CMD_REGION_DEL:
+		mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+		if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+		    !tb[DEVLINK_ATTR_REGION_NAME])
+			return MNL_CB_ERROR;
+		pr_out_mon_header(genl->cmd);
+		pr_out_region(dl, tb);
 		break;
 	}
 	return MNL_CB_OK;
@@ -3545,7 +4659,8 @@ static int dpipe_table_show(struct dpipe_ctx *ctx, struct nlattr *nl)
 	size = mnl_attr_get_u32(nla_table[DEVLINK_ATTR_DPIPE_TABLE_SIZE]);
 	counters_enabled = !!mnl_attr_get_u8(nla_table[DEVLINK_ATTR_DPIPE_TABLE_COUNTERS_ENABLED]);
 
-	resource_valid = !!nla_table[DEVLINK_ATTR_DPIPE_TABLE_RESOURCE_ID];
+	resource_valid = nla_table[DEVLINK_ATTR_DPIPE_TABLE_RESOURCE_ID] &&
+			 ctx->resources;
 	if (resource_valid) {
 		table->resource_id = mnl_attr_get_u64(nla_table[DEVLINK_ATTR_DPIPE_TABLE_RESOURCE_ID]);
 		table->resource_valid = true;
@@ -3661,12 +4776,9 @@ static int cmd_dpipe_table_show(struct dl *dl)
 	dl_opts_put(nlh, dl);
 	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_resource_dump_cb,
 				  &resource_ctx);
-	if (err) {
-		pr_err("error get resources %s\n", strerror(resource_ctx.err));
-		goto err_resource_dump;
-	}
+	if (!err)
+		dpipe_ctx.resources = resource_ctx.resources;
 
-	dpipe_ctx.resources = resource_ctx.resources;
 	flags = NLM_F_REQUEST | NLM_F_ACK;
 	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_DPIPE_TABLE_GET, flags);
 	dl_opts_put(nlh, dl);
@@ -3679,8 +4791,6 @@ static int cmd_dpipe_table_show(struct dl *dl)
 	dpipe_ctx_fini(&dpipe_ctx);
 	return 0;
 
-err_resource_dump:
-	resource_ctx_fini(&resource_ctx);
 err_resource_ctx_init:
 err_headers_get:
 	dpipe_ctx_fini(&dpipe_ctx);
@@ -4457,7 +5567,7 @@ static int cmd_resource_set(struct dl *dl)
 				  &dl->opts.resource_id,
 				  &dl->opts.resource_id_valid);
 	if (err) {
-		pr_err("error parsing resource path %s\n", strerror(err));
+		pr_err("error parsing resource path %s\n", strerror(-err));
 		goto out;
 	}
 
@@ -4487,12 +5597,692 @@ static int cmd_resource(struct dl *dl)
 	return -ENOENT;
 }
 
+static void pr_out_region_handle_start(struct dl *dl, struct nlattr **tb)
+{
+	const char *bus_name = mnl_attr_get_str(tb[DEVLINK_ATTR_BUS_NAME]);
+	const char *dev_name = mnl_attr_get_str(tb[DEVLINK_ATTR_DEV_NAME]);
+	const char *region_name = mnl_attr_get_str(tb[DEVLINK_ATTR_REGION_NAME]);
+	char buf[256];
+
+	sprintf(buf, "%s/%s/%s", bus_name, dev_name, region_name);
+	if (dl->json_output) {
+		jsonw_name(dl->jw, buf);
+		jsonw_start_object(dl->jw);
+	} else {
+		pr_out("%s:", buf);
+	}
+}
+
+static void pr_out_region_handle_end(struct dl *dl)
+{
+	if (dl->json_output)
+		jsonw_end_object(dl->jw);
+	else
+		pr_out("\n");
+}
+
+static void pr_out_region_snapshots_start(struct dl *dl, bool array)
+{
+	if (dl->json_output) {
+		jsonw_name(dl->jw, "snapshot");
+		jsonw_start_array(dl->jw);
+	} else {
+		if (g_indent_newline)
+			pr_out("snapshot %s", array ? "[" : "");
+		else
+			pr_out(" snapshot %s", array ? "[" : "");
+	}
+}
+
+static void pr_out_region_snapshots_end(struct dl *dl, bool array)
+{
+	if (dl->json_output)
+		jsonw_end_array(dl->jw);
+	else if (array)
+		pr_out("]");
+}
+
+static void pr_out_region_snapshots_id(struct dl *dl, struct nlattr **tb, int index)
+{
+	uint32_t snapshot_id;
+
+	if (!tb[DEVLINK_ATTR_REGION_SNAPSHOT_ID])
+		return;
+
+	snapshot_id = mnl_attr_get_u32(tb[DEVLINK_ATTR_REGION_SNAPSHOT_ID]);
+
+	if (dl->json_output)
+		jsonw_uint(dl->jw, snapshot_id);
+	else
+		pr_out("%s%u", index ? " " : "", snapshot_id);
+}
+
+static void pr_out_snapshots(struct dl *dl, struct nlattr **tb)
+{
+	struct nlattr *tb_snapshot[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *nla_sanpshot;
+	int err, index = 0;
+
+	pr_out_region_snapshots_start(dl, true);
+	mnl_attr_for_each_nested(nla_sanpshot, tb[DEVLINK_ATTR_REGION_SNAPSHOTS]) {
+		err = mnl_attr_parse_nested(nla_sanpshot, attr_cb, tb_snapshot);
+		if (err != MNL_CB_OK)
+			return;
+		pr_out_region_snapshots_id(dl, tb_snapshot, index++);
+	}
+	pr_out_region_snapshots_end(dl, true);
+}
+
+static void pr_out_snapshot(struct dl *dl, struct nlattr **tb)
+{
+	pr_out_region_snapshots_start(dl, false);
+	pr_out_region_snapshots_id(dl, tb, 0);
+	pr_out_region_snapshots_end(dl, false);
+}
+
+static void pr_out_region(struct dl *dl, struct nlattr **tb)
+{
+	pr_out_region_handle_start(dl, tb);
+
+	if (tb[DEVLINK_ATTR_REGION_SIZE])
+		pr_out_u64(dl, "size",
+			   mnl_attr_get_u64(tb[DEVLINK_ATTR_REGION_SIZE]));
+
+	if (tb[DEVLINK_ATTR_REGION_SNAPSHOTS])
+		pr_out_snapshots(dl, tb);
+
+	if (tb[DEVLINK_ATTR_REGION_SNAPSHOT_ID])
+		pr_out_snapshot(dl, tb);
+
+	pr_out_region_handle_end(dl);
+}
+
+static int cmd_region_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_REGION_NAME] || !tb[DEVLINK_ATTR_REGION_SIZE])
+		return MNL_CB_ERROR;
+
+	pr_out_region(dl, tb);
+
+	return MNL_CB_OK;
+}
+
+static int cmd_region_show(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	int err;
+
+	if (dl_argc(dl) == 0)
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_REGION_GET, flags);
+
+	if (dl_argc(dl) > 0) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_REGION, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "regions");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_region_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static int cmd_region_snapshot_del(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_REGION_DEL,
+			       NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_REGION |
+				DL_OPT_REGION_SNAPSHOT_ID, 0);
+	if (err)
+		return err;
+
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
+static int cmd_region_read_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct nlattr *nla_entry, *nla_chunk_data, *nla_chunk_addr;
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb_field[DEVLINK_ATTR_MAX + 1] = {};
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+	int err;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_REGION_CHUNKS])
+		return MNL_CB_ERROR;
+
+	mnl_attr_for_each_nested(nla_entry, tb[DEVLINK_ATTR_REGION_CHUNKS]) {
+		err = mnl_attr_parse_nested(nla_entry, attr_cb, tb_field);
+		if (err != MNL_CB_OK)
+			return MNL_CB_ERROR;
+
+		nla_chunk_data = tb_field[DEVLINK_ATTR_REGION_CHUNK_DATA];
+		if (!nla_chunk_data)
+			continue;
+
+		nla_chunk_addr = tb_field[DEVLINK_ATTR_REGION_CHUNK_ADDR];
+		if (!nla_chunk_addr)
+			continue;
+
+		pr_out_region_chunk(dl, mnl_attr_get_payload(nla_chunk_data),
+				    mnl_attr_get_payload_len(nla_chunk_data),
+				    mnl_attr_get_u64(nla_chunk_addr));
+	}
+	return MNL_CB_OK;
+}
+
+static int cmd_region_dump(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_REGION_READ,
+			       NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP);
+
+	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_REGION |
+				DL_OPT_REGION_SNAPSHOT_ID, 0);
+	if (err)
+		return err;
+
+	pr_out_section_start(dl, "dump");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_region_read_cb, dl);
+	pr_out_section_end(dl);
+	if (!dl->json_output)
+		pr_out("\n");
+	return err;
+}
+
+static int cmd_region_read(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_REGION_READ,
+			       NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP);
+
+	err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_REGION |
+				DL_OPT_REGION_ADDRESS | DL_OPT_REGION_LENGTH |
+				DL_OPT_REGION_SNAPSHOT_ID, 0);
+	if (err)
+		return err;
+
+	pr_out_section_start(dl, "read");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_region_read_cb, dl);
+	pr_out_section_end(dl);
+	if (!dl->json_output)
+		pr_out("\n");
+	return err;
+}
+
+static void cmd_region_help(void)
+{
+	pr_err("Usage: devlink region show [ DEV/REGION ]\n");
+	pr_err("       devlink region del DEV/REGION snapshot SNAPSHOT_ID\n");
+	pr_err("       devlink region dump DEV/REGION [ snapshot SNAPSHOT_ID ]\n");
+	pr_err("       devlink region read DEV/REGION [ snapshot SNAPSHOT_ID ] address ADDRESS length LENGTH\n");
+}
+
+static int cmd_region(struct dl *dl)
+{
+	if (dl_no_arg(dl)) {
+		return cmd_region_show(dl);
+	} else if (dl_argv_match(dl, "help")) {
+		cmd_region_help();
+		return 0;
+	} else if (dl_argv_match(dl, "show")) {
+		dl_arg_inc(dl);
+		return cmd_region_show(dl);
+	} else if (dl_argv_match(dl, "del")) {
+		dl_arg_inc(dl);
+		return cmd_region_snapshot_del(dl);
+	} else if (dl_argv_match(dl, "dump")) {
+		dl_arg_inc(dl);
+		return cmd_region_dump(dl);
+	} else if (dl_argv_match(dl, "read")) {
+		dl_arg_inc(dl);
+		return cmd_region_read(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
+
+static int cmd_health_set_params(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_HEALTH_REPORTER_SET,
+			       NLM_F_REQUEST | NLM_F_ACK);
+	err = dl_argv_parse(dl, DL_OPT_HANDLE | DL_OPT_HEALTH_REPORTER_NAME,
+			    DL_OPT_HEALTH_REPORTER_GRACEFUL_PERIOD |
+			    DL_OPT_HEALTH_REPORTER_AUTO_RECOVER);
+	if (err)
+		return err;
+
+	dl_opts_put(nlh, dl);
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
+static int cmd_health_dump_clear(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_HEALTH_REPORTER_DUMP_CLEAR,
+			       NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl,
+				DL_OPT_HANDLE | DL_OPT_HEALTH_REPORTER_NAME, 0);
+	if (err)
+		return err;
+
+	dl_opts_put(nlh, dl);
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
+static int fmsg_value_show(struct dl *dl, int type, struct nlattr *nl_data)
+{
+	uint8_t *data;
+	uint32_t len;
+
+	switch (type) {
+	case MNL_TYPE_FLAG:
+		pr_out_bool_value(dl, mnl_attr_get_u8(nl_data));
+		break;
+	case MNL_TYPE_U8:
+		pr_out_uint_value(dl, mnl_attr_get_u8(nl_data));
+		break;
+	case MNL_TYPE_U16:
+		pr_out_uint_value(dl, mnl_attr_get_u16(nl_data));
+		break;
+	case MNL_TYPE_U32:
+		pr_out_uint_value(dl, mnl_attr_get_u32(nl_data));
+		break;
+	case MNL_TYPE_U64:
+		pr_out_uint64_value(dl, mnl_attr_get_u64(nl_data));
+		break;
+	case MNL_TYPE_NUL_STRING:
+		pr_out_str_value(dl, mnl_attr_get_str(nl_data));
+		break;
+	case MNL_TYPE_BINARY:
+		len = mnl_attr_get_payload_len(nl_data);
+		data = mnl_attr_get_payload(nl_data);
+		pr_out_binary_value(dl, data, len);
+		break;
+	default:
+		return -EINVAL;
+	}
+	return MNL_CB_OK;
+}
+
+struct nest_qentry {
+	int attr_type;
+	TAILQ_ENTRY(nest_qentry) nest_entries;
+};
+
+struct fmsg_cb_data {
+	struct dl *dl;
+	uint8_t value_type;
+	TAILQ_HEAD(, nest_qentry) qhead;
+};
+
+static int cmd_fmsg_nest_queue(struct fmsg_cb_data *fmsg_data,
+			       uint8_t *attr_value, bool insert)
+{
+	struct nest_qentry *entry = NULL;
+
+	if (insert) {
+		entry = malloc(sizeof(struct nest_qentry));
+		if (!entry)
+			return -ENOMEM;
+
+		entry->attr_type = *attr_value;
+		TAILQ_INSERT_HEAD(&fmsg_data->qhead, entry, nest_entries);
+	} else {
+		if (TAILQ_EMPTY(&fmsg_data->qhead))
+			return MNL_CB_ERROR;
+		entry = TAILQ_FIRST(&fmsg_data->qhead);
+		*attr_value = entry->attr_type;
+		TAILQ_REMOVE(&fmsg_data->qhead, entry, nest_entries);
+		free(entry);
+	}
+	return MNL_CB_OK;
+}
+
+static int cmd_fmsg_nest(struct fmsg_cb_data *fmsg_data, uint8_t nest_value,
+			 bool start)
+{
+	struct dl *dl = fmsg_data->dl;
+	uint8_t value = nest_value;
+	int err;
+
+	err = cmd_fmsg_nest_queue(fmsg_data, &value, start);
+	if (err != MNL_CB_OK)
+		return err;
+
+	switch (value) {
+	case DEVLINK_ATTR_FMSG_OBJ_NEST_START:
+		if (start)
+			pr_out_entry_start(dl);
+		else
+			pr_out_entry_end(dl);
+		break;
+	case DEVLINK_ATTR_FMSG_PAIR_NEST_START:
+		break;
+	case DEVLINK_ATTR_FMSG_ARR_NEST_START:
+		if (dl->json_output) {
+			if (start)
+				jsonw_start_array(dl->jw);
+			else
+				jsonw_end_array(dl->jw);
+		} else {
+			if (start) {
+				__pr_out_newline();
+				__pr_out_indent_inc();
+			} else {
+				__pr_out_indent_dec();
+			}
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+	return MNL_CB_OK;
+}
+
+static int cmd_fmsg_object_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct fmsg_cb_data *fmsg_data = data;
+	struct dl *dl = fmsg_data->dl;
+	struct nlattr *nla_object;
+	int attr_type;
+	int err;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_FMSG])
+		return MNL_CB_ERROR;
+
+	mnl_attr_for_each_nested(nla_object, tb[DEVLINK_ATTR_FMSG]) {
+		attr_type = mnl_attr_get_type(nla_object);
+		switch (attr_type) {
+		case DEVLINK_ATTR_FMSG_OBJ_NEST_START:
+		case DEVLINK_ATTR_FMSG_PAIR_NEST_START:
+		case DEVLINK_ATTR_FMSG_ARR_NEST_START:
+			err = cmd_fmsg_nest(fmsg_data, attr_type, true);
+			if (err != MNL_CB_OK)
+				return err;
+			break;
+		case DEVLINK_ATTR_FMSG_NEST_END:
+			err = cmd_fmsg_nest(fmsg_data, attr_type, false);
+			if (err != MNL_CB_OK)
+				return err;
+			break;
+		case DEVLINK_ATTR_FMSG_OBJ_NAME:
+			pr_out_name(dl, mnl_attr_get_str(nla_object));
+			break;
+		case DEVLINK_ATTR_FMSG_OBJ_VALUE_TYPE:
+			fmsg_data->value_type = mnl_attr_get_u8(nla_object);
+			break;
+		case DEVLINK_ATTR_FMSG_OBJ_VALUE_DATA:
+			err = fmsg_value_show(dl, fmsg_data->value_type,
+					      nla_object);
+			if (err != MNL_CB_OK)
+				return err;
+			break;
+		default:
+			return -EINVAL;
+		}
+	}
+	return MNL_CB_OK;
+}
+
+static int cmd_health_object_common(struct dl *dl, uint8_t cmd)
+{
+	struct fmsg_cb_data data;
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, cmd,  NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl,
+				DL_OPT_HANDLE | DL_OPT_HEALTH_REPORTER_NAME, 0);
+	if (err)
+		return err;
+
+	data.dl = dl;
+	TAILQ_INIT(&data.qhead);
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_fmsg_object_cb, &data);
+	return err;
+}
+
+static int cmd_health_dump_show(struct dl *dl)
+{
+	return cmd_health_object_common(dl, DEVLINK_CMD_HEALTH_REPORTER_DUMP_GET);
+}
+
+static int cmd_health_diagnose(struct dl *dl)
+{
+	return cmd_health_object_common(dl, DEVLINK_CMD_HEALTH_REPORTER_DIAGNOSE);
+}
+
+static int cmd_health_recover(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_HEALTH_REPORTER_RECOVER,
+			       NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl,
+				DL_OPT_HANDLE | DL_OPT_HEALTH_REPORTER_NAME, 0);
+	if (err)
+		return err;
+
+	dl_opts_put(nlh, dl);
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
+enum devlink_health_reporter_state {
+	DEVLINK_HEALTH_REPORTER_STATE_HEALTHY,
+	DEVLINK_HEALTH_REPORTER_STATE_ERROR,
+};
+
+static const char *health_state_name(uint8_t state)
+{
+	switch (state) {
+	case DEVLINK_HEALTH_REPORTER_STATE_HEALTHY:
+		return HEALTH_REPORTER_STATE_HEALTHY_STR;
+	case DEVLINK_HEALTH_REPORTER_STATE_ERROR:
+		return HEALTH_REPORTER_STATE_ERROR_STR;
+	default:
+		return "<unknown state>";
+	}
+}
+
+static void format_logtime(uint64_t time_ms, char *ts_date, char *ts_time)
+{
+	struct sysinfo s_info;
+	struct tm *info;
+	time_t now, sec;
+	int err;
+
+	time(&now);
+	info = localtime(&now);
+	err = sysinfo(&s_info);
+	if (err)
+		goto out;
+	/* Subtract uptime in sec from now yields the time of system
+	 * uptime. To this, add time_ms which is the amount of
+	 * milliseconds elapsed between uptime and the dump taken.
+	 */
+	sec = now - s_info.uptime + time_ms / 1000;
+	info = localtime(&sec);
+out:
+	strftime(ts_date, HEALTH_REPORTER_TIMESTAMP_FMT_LEN, "%Y-%m-%d", info);
+	strftime(ts_time, HEALTH_REPORTER_TIMESTAMP_FMT_LEN, "%H:%M:%S", info);
+}
+
+static void pr_out_health(struct dl *dl, struct nlattr **tb_health)
+{
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	enum devlink_health_reporter_state state;
+	const struct nlattr *attr;
+	uint64_t time_ms;
+	int err;
+
+	err = mnl_attr_parse_nested(tb_health[DEVLINK_ATTR_HEALTH_REPORTER],
+				    attr_cb, tb);
+	if (err != MNL_CB_OK)
+		return;
+
+	if (!tb[DEVLINK_ATTR_HEALTH_REPORTER_NAME] ||
+	    !tb[DEVLINK_ATTR_HEALTH_REPORTER_ERR_COUNT] ||
+	    !tb[DEVLINK_ATTR_HEALTH_REPORTER_RECOVER_COUNT] ||
+	    !tb[DEVLINK_ATTR_HEALTH_REPORTER_STATE])
+		return;
+
+	pr_out_handle_start_arr(dl, tb_health);
+
+	pr_out_str(dl, "name",
+		   mnl_attr_get_str(tb[DEVLINK_ATTR_HEALTH_REPORTER_NAME]));
+	if (!dl->json_output) {
+		__pr_out_newline();
+		__pr_out_indent_inc();
+	}
+	state = mnl_attr_get_u8(tb[DEVLINK_ATTR_HEALTH_REPORTER_STATE]);
+	pr_out_str(dl, "state", health_state_name(state));
+	pr_out_u64(dl, "error",
+		   mnl_attr_get_u64(tb[DEVLINK_ATTR_HEALTH_REPORTER_ERR_COUNT]));
+	pr_out_u64(dl, "recover",
+		   mnl_attr_get_u64(tb[DEVLINK_ATTR_HEALTH_REPORTER_RECOVER_COUNT]));
+	if (tb[DEVLINK_ATTR_HEALTH_REPORTER_DUMP_TS]) {
+		char dump_date[HEALTH_REPORTER_TIMESTAMP_FMT_LEN];
+		char dump_time[HEALTH_REPORTER_TIMESTAMP_FMT_LEN];
+
+		attr = tb[DEVLINK_ATTR_HEALTH_REPORTER_DUMP_TS];
+		time_ms = mnl_attr_get_u64(attr);
+		format_logtime(time_ms, dump_date, dump_time);
+
+		pr_out_str(dl, "last_dump_date", dump_date);
+		pr_out_str(dl, "last_dump_time", dump_time);
+	}
+	if (tb[DEVLINK_ATTR_HEALTH_REPORTER_GRACEFUL_PERIOD])
+		pr_out_u64(dl, "grace_period",
+			   mnl_attr_get_u64(tb[DEVLINK_ATTR_HEALTH_REPORTER_GRACEFUL_PERIOD]));
+	if (tb[DEVLINK_ATTR_HEALTH_REPORTER_AUTO_RECOVER])
+		pr_out_bool(dl, "auto_recover",
+			    mnl_attr_get_u8(tb[DEVLINK_ATTR_HEALTH_REPORTER_AUTO_RECOVER]));
+
+	__pr_out_indent_dec();
+	pr_out_handle_end(dl);
+}
+
+static int cmd_health_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_HEALTH_REPORTER])
+		return MNL_CB_ERROR;
+
+	pr_out_health(dl, tb);
+
+	return MNL_CB_OK;
+}
+
+static int cmd_health_show(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	int err;
+
+	if (dl_argc(dl) == 0)
+		flags |= NLM_F_DUMP;
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_HEALTH_REPORTER_GET,
+			       flags);
+
+	if (dl_argc(dl) > 0) {
+		err = dl_argv_parse_put(nlh, dl,
+					DL_OPT_HANDLE |
+					DL_OPT_HEALTH_REPORTER_NAME, 0);
+		if (err)
+			return err;
+	}
+	pr_out_section_start(dl, "health");
+
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_health_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static void cmd_health_help(void)
+{
+	pr_err("Usage: devlink health show [ dev DEV reporter REPORTER_NAME ]\n");
+	pr_err("       devlink health recover DEV reporter REPORTER_NAME\n");
+	pr_err("       devlink health diagnose DEV reporter REPORTER_NAME\n");
+	pr_err("       devlink health dump show DEV reporter REPORTER_NAME\n");
+	pr_err("       devlink health dump clear DEV reporter REPORTER_NAME\n");
+	pr_err("       devlink health set DEV reporter REPORTER_NAME { grace_period | auto_recover } { msec | boolean }\n");
+}
+
+static int cmd_health(struct dl *dl)
+{
+	if (dl_argv_match(dl, "help")) {
+		cmd_health_help();
+		return 0;
+	} else if (dl_argv_match(dl, "show") ||
+		   dl_argv_match(dl, "list") || dl_no_arg(dl)) {
+		dl_arg_inc(dl);
+		return cmd_health_show(dl);
+	} else if (dl_argv_match(dl, "recover")) {
+		dl_arg_inc(dl);
+		return cmd_health_recover(dl);
+	} else if (dl_argv_match(dl, "diagnose")) {
+		dl_arg_inc(dl);
+		return cmd_health_diagnose(dl);
+	} else if (dl_argv_match(dl, "dump")) {
+		dl_arg_inc(dl);
+		if (dl_argv_match(dl, "show")) {
+			dl_arg_inc(dl);
+			return cmd_health_dump_show(dl);
+		} else if (dl_argv_match(dl, "clear")) {
+			dl_arg_inc(dl);
+			return cmd_health_dump_clear(dl);
+		}
+	} else if (dl_argv_match(dl, "set")) {
+		dl_arg_inc(dl);
+		return cmd_health_set_params(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
+
 static void help(void)
 {
 	pr_err("Usage: devlink [ OPTIONS ] OBJECT { COMMAND | help }\n"
 	       "       devlink [ -f[orce] ] -b[atch] filename\n"
-	       "where  OBJECT := { dev | port | sb | monitor | dpipe | resource }\n"
-	       "       OPTIONS := { -V[ersion] | -n[no-nice-names] | -j[json] | -p[pretty] | -v[verbose] }\n");
+	       "where  OBJECT := { dev | port | sb | monitor | dpipe | resource | region | health }\n"
+	       "       OPTIONS := { -V[ersion] | -n[o-nice-names] | -j[son] | -p[retty] | -v[erbose] }\n");
 }
 
 static int dl_cmd(struct dl *dl, int argc, char **argv)
@@ -4521,6 +6311,12 @@ static int dl_cmd(struct dl *dl, int argc, char **argv)
 	} else if (dl_argv_match(dl, "resource")) {
 		dl_arg_inc(dl);
 		return cmd_resource(dl);
+	} else if (dl_argv_match(dl, "region")) {
+		dl_arg_inc(dl);
+		return cmd_region(dl);
+	} else if (dl_argv_match(dl, "health")) {
+		dl_arg_inc(dl);
+		return cmd_health(dl);
 	}
 	pr_err("Object \"%s\" not found\n", dl_argv(dl));
 	return -ENOENT;

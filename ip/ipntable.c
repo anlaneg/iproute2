@@ -346,7 +346,7 @@ static void print_ndtconfig(const struct ndt_config *ndtc)
 		   "entry_size %u ", ndtc->ndtc_entry_size);
 	print_uint(PRINT_ANY, "entries", "entries %u ", ndtc->ndtc_entries);
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 
 	print_string(PRINT_ANY, "last_flush",
 		     "        last_flush %s ",
@@ -355,19 +355,19 @@ static void print_ndtconfig(const struct ndt_config *ndtc)
 		     "last_rand %s ",
 		     ntable_strtime_delta(ndtc->ndtc_last_rand));
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 
 	print_uint(PRINT_ANY, "hash_rnd",
 		   "        hash_rnd %u ", ndtc->ndtc_hash_rnd);
 	print_0xhex(PRINT_ANY, "hash_mask",
-		    "hash_mask %08x ", ndtc->ndtc_hash_mask);
+		    "hash_mask %08llx ", ndtc->ndtc_hash_mask);
 
 	print_uint(PRINT_ANY, "hash_chain_gc",
 		   "hash_chain_gc %u ", ndtc->ndtc_hash_chain_gc);
 	print_uint(PRINT_ANY, "proxy_qlen",
 		   "proxy_qlen %u ", ndtc->ndtc_proxy_qlen);
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 }
 
 static void print_ndtparams(struct rtattr *tpb[])
@@ -379,7 +379,7 @@ static void print_ndtparams(struct rtattr *tpb[])
 		print_string(PRINT_FP, NULL, "    dev ", NULL);
 		print_color_string(PRINT_ANY, COLOR_IFNAME,
 				   "dev", "%s ", ll_index_to_name(ifindex));
-		print_string(PRINT_FP, NULL, "%s", _SL_);
+		print_nl();
 	}
 
 	print_string(PRINT_FP, NULL, "    ", NULL);
@@ -482,7 +482,7 @@ static void print_ndtparams(struct rtattr *tpb[])
 		print_u64(PRINT_ANY, "locktime", "locktime %llu ", locktime);
 	}
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 }
 
 static void print_ndtstats(const struct ndt_stats *ndts)
@@ -517,11 +517,10 @@ static void print_ndtstats(const struct ndt_stats *ndts)
 	print_u64(PRINT_ANY, "forced_gc_runs", "forced_gc_runs %llu ",
 		   ndts->ndts_forced_gc_runs);
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 }
 
-static int print_ntable(const struct sockaddr_nl *who,
-			struct nlmsghdr *n, void *arg)
+static int print_ntable(struct nlmsghdr *n, void *arg)
 {
 	FILE *fp = (FILE *)arg;
 	struct ndtmsg *ndtm = NLMSG_DATA(n);
@@ -579,7 +578,7 @@ static int print_ntable(const struct sockaddr_nl *who,
 		print_string(PRINT_ANY, "name", "%s ", name);
 	}
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 
 	ret = (tb[NDTA_THRESH1] || tb[NDTA_THRESH2] || tb[NDTA_THRESH3] ||
 	       tb[NDTA_GC_INTERVAL]);
@@ -611,7 +610,7 @@ static int print_ntable(const struct sockaddr_nl *who,
 	}
 
 	if (ret)
-		print_string(PRINT_FP, NULL, "%s", _SL_);
+		print_nl();
 
 	if (tb[NDTA_CONFIG] && show_stats)
 		print_ndtconfig(RTA_DATA(tb[NDTA_CONFIG]));
@@ -658,7 +657,7 @@ static int ipntable_show(int argc, char **argv)
 		argc--; argv++;
 	}
 
-	if (rtnl_wilddump_request(&rth, preferred_family, RTM_GETNEIGHTBL) < 0) {
+	if (rtnl_neightbldump_req(&rth, preferred_family) < 0) {
 		perror("Cannot send dump request");
 		exit(1);
 	}

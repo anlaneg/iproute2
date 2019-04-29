@@ -55,7 +55,7 @@ static void usage(void)
 	fprintf(stderr, "Usage: ip xfrm policy { add | update } SELECTOR dir DIR [ ctx CTX ]\n");
 	fprintf(stderr, "        [ mark MARK [ mask MASK ] ] [ index INDEX ] [ ptype PTYPE ]\n");
 	fprintf(stderr, "        [ action ACTION ] [ priority PRIORITY ] [ flag FLAG-LIST ]\n");
-	fprintf(stderr, "        [ LIMIT-LIST ] [ TMPL-LIST ]\n");
+	fprintf(stderr, "        [ if_id IF_ID ] [ LIMIT-LIST ] [ TMPL-LIST ]\n");
 	fprintf(stderr, "Usage: ip xfrm policy { delete | get } { SELECTOR | index INDEX } dir DIR\n");
 	fprintf(stderr, "        [ ctx CTX ] [ mark MARK [ mask MASK ] ] [ ptype PTYPE ]\n");
 	fprintf(stderr, "Usage: ip xfrm policy { deleteall | list } [ nosock ] [ SELECTOR ] [ dir DIR ]\n");
@@ -270,6 +270,8 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 		struct xfrm_user_sec_ctx sctx;
 		char	str[CTX_BUF_SIZE];
 	} ctx = {};
+	bool is_if_id_set = false;
+	__u32 if_id = 0;
 
 	while (argc > 0) {
 		if (strcmp(*argv, "dir") == 0) {
@@ -338,6 +340,11 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 			xfrm_tmpl_parse(tmpl, &argc, &argv);
 
 			tmpls_len += sizeof(*tmpl);
+		} else if (strcmp(*argv, "if_id") == 0) {
+			NEXT_ARG();
+			if (get_u32(&if_id, *argv, 0))
+				invarg("IF_ID value is invalid", *argv);
+			is_if_id_set = true;
 		} else {
 			if (selp)
 				duparg("unknown", *argv);
@@ -379,6 +386,9 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 		addattr_l(&req.n, sizeof(req), XFRMA_SEC_CTX,
 			  (void *)&ctx, ctx.sctx.len);
 	}
+
+	if (is_if_id_set)
+		addattr32(&req.n, sizeof(req.buf), XFRMA_IF_ID, if_id);
 
 	if (rtnl_open_byproto(&rth, 0, NETLINK_XFRM) < 0)
 		exit(1);
@@ -453,8 +463,7 @@ static int xfrm_policy_filter_match(struct xfrm_userpolicy_info *xpinfo,
 	return 1;
 }
 
-int xfrm_policy_print(const struct sockaddr_nl *who, struct nlmsghdr *n,
-		      void *arg)
+int xfrm_policy_print(struct nlmsghdr *n, void *arg)
 {
 	struct rtattr *tb[XFRMA_MAX+1];
 	struct rtattr *rta;
@@ -681,7 +690,7 @@ static int xfrm_policy_get(int argc, char **argv)
 
 	xfrm_policy_get_or_delete(argc, argv, 0, &n);
 
-	if (xfrm_policy_print(NULL, n, (void *)stdout) < 0) {
+	if (xfrm_policy_print(n, (void *)stdout) < 0) {
 		fprintf(stderr, "An error :-)\n");
 		exit(1);
 	}
@@ -694,9 +703,7 @@ static int xfrm_policy_get(int argc, char **argv)
  * With an existing policy of nlmsg, make new nlmsg for deleting the policy
  * and store it to buffer.
  */
-static int xfrm_policy_keep(const struct sockaddr_nl *who,
-			    struct nlmsghdr *n,
-			    void *arg)
+static int xfrm_policy_keep(struct nlmsghdr *n, void *arg)
 {
 	struct xfrm_buffer *xb = (struct xfrm_buffer *)arg;
 	struct rtnl_handle *rth = xb->rth;

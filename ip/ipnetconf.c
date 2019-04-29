@@ -55,8 +55,7 @@ static struct rtattr *netconf_rta(struct netconfmsg *ncm)
 				 + NLMSG_ALIGN(sizeof(struct netconfmsg)));
 }
 
-int print_netconf(const struct sockaddr_nl *who, struct rtnl_ctrl_data *ctrl,
-		  struct nlmsghdr *n, void *arg)
+int print_netconf(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n, void *arg)
 {
 	FILE *fp = (FILE *)arg;
 	struct netconfmsg *ncm = NLMSG_DATA(n);
@@ -66,8 +65,10 @@ int print_netconf(const struct sockaddr_nl *who, struct rtnl_ctrl_data *ctrl,
 
 	if (n->nlmsg_type == NLMSG_ERROR)
 		return -1;
-	if (n->nlmsg_type != RTM_NEWNETCONF) {
-		fprintf(stderr, "Not RTM_NEWNETCONF: %08x %08x %08x\n",
+
+	if (n->nlmsg_type != RTM_NEWNETCONF &&
+	    n->nlmsg_type != RTM_DELNETCONF) {
+		fprintf(stderr, "Not a netconf message: %08x %08x %08x\n",
 			n->nlmsg_len, n->nlmsg_type, n->nlmsg_flags);
 
 		return -1;
@@ -91,6 +92,9 @@ int print_netconf(const struct sockaddr_nl *who, struct rtnl_ctrl_data *ctrl,
 		return 0;
 
 	open_json_object(NULL);
+	if (n->nlmsg_type == RTM_DELNETCONF)
+		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
+
 	print_string(PRINT_ANY, "family",
 		     "%s ", family_name(ncm->ncm_family));
 
@@ -149,10 +153,9 @@ int print_netconf(const struct sockaddr_nl *who, struct rtnl_ctrl_data *ctrl,
 	return 0;
 }
 
-static int print_netconf2(const struct sockaddr_nl *who,
-			  struct nlmsghdr *n, void *arg)
+static int print_netconf2(struct nlmsghdr *n, void *arg)
 {
-	return print_netconf(who, NULL, n, arg);
+	return print_netconf(NULL, n, arg);
 }
 
 void ipnetconf_reset_filter(int ifindex)
@@ -205,8 +208,7 @@ static int do_show(int argc, char **argv)
 	} else {
 		rth.flags = RTNL_HANDLE_F_SUPPRESS_NLERR;
 dump:
-		if (rtnl_wilddump_request(&rth, filter.family,
-					  RTM_GETNETCONF) < 0) {
+		if (rtnl_netconfdump_req(&rth, filter.family) < 0) {
 			perror("Cannot send dump request");
 			exit(1);
 		}

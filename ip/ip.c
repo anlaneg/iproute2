@@ -33,7 +33,6 @@ int oneline;
 int brief;
 int json;
 int timestamp;
-const char *_SL_;
 int force;
 int max_flush_loops = 10;
 int batch_mode;
@@ -54,8 +53,8 @@ static void usage(void)
 "                   vrf | sr }\n"
 "       OPTIONS := { -V[ersion] | -s[tatistics] | -d[etails] | -r[esolve] |\n"
 "                    -h[uman-readable] | -iec | -j[son] | -p[retty] |\n"
-"                    -f[amily] { inet | inet6 | ipx | dnet | mpls | bridge | link } |\n"
-"                    -4 | -6 | -I | -D | -B | -0 |\n"
+"                    -f[amily] { inet | inet6 | mpls | bridge | link } |\n"
+"                    -4 | -6 | -I | -D | -M | -B | -0 |\n"
 "                    -l[oops] { maximum-addr-flush-attempts } | -br[ief] |\n"
 "                    -o[neline] | -t[imestamp] | -ts[hort] | -b[atch] [filename] |\n"
 "                    -rc[vbuf] [size] | -n[etns] name | -a[ll] | -c[olor]}\n");
@@ -226,8 +225,6 @@ int main(int argc, char **argv)
 			preferred_family = AF_INET6;
 		} else if (strcmp(opt, "-0") == 0) {
 			preferred_family = AF_PACKET;
-		} else if (strcmp(opt, "-I") == 0) {
-			preferred_family = AF_IPX;
 		} else if (strcmp(opt, "-D") == 0) {
 			preferred_family = AF_DECnet;
 		} else if (strcmp(opt, "-M") == 0) {
@@ -283,8 +280,7 @@ int main(int argc, char **argv)
 				exit(-1);
 			}
 			rcvbuf = size;
-		} else if (matches(opt, "-color") == 0) {
-			++color;
+		} else if (matches_color(opt, &color)) {
 		} else if (matches(opt, "-help") == 0) {
 			usage();
 		} else if (matches(opt, "-netns") == 0) {
@@ -304,14 +300,15 @@ int main(int argc, char **argv)
 
 	_SL_ = oneline ? "\\" : "\n";
 
-	if (color && !json)
-		enable_color();
+	check_enable_color(color, json);
 
 	if (batch_file)
 		return batch(batch_file);
 
 	if (rtnl_open(&rth, 0) < 0)
 		exit(1);
+
+	rtnl_set_strict_dump(&rth);
 
 	if (strlen(basename) > 2)
 		return do_cmd(basename+2, argc, argv);

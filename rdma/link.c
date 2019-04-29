@@ -1,11 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * link.c	RDMA tool
- *
- *              This program is free software; you can redistribute it and/or
- *              modify it under the terms of the GNU General Public License
- *              as published by the Free Software Foundation; either version
- *              2 of the License, or (at your option) any later version.
- *
  * Authors:     Leon Romanovsky <leonro@mellanox.com>
  */
 
@@ -19,7 +14,8 @@ static int link_help(struct rd *rd)
 
 static const char *caps_to_str(uint32_t idx)
 {
-#define RDMA_PORT_FLAGS(x) \
+#define RDMA_PORT_FLAGS_LOW(x) \
+	x(RESERVED, 0) \
 	x(SM, 1) \
 	x(NOTICE, 2) \
 	x(TRAP, 3) \
@@ -32,7 +28,9 @@ static const char *caps_to_str(uint32_t idx)
 	x(SM_DISABLED, 10) \
 	x(SYS_IMAGE_GUID, 11) \
 	x(PKEY_SW_EXT_PORT_TRAP, 12) \
+	x(CABLE_INFO, 13) \
 	x(EXTENDED_SPEEDS, 14) \
+	x(CAP_MASK2, 15) \
 	x(CM, 16) \
 	x(SNMP_TUNNEL, 17) \
 	x(REINIT, 18) \
@@ -43,16 +41,45 @@ static const char *caps_to_str(uint32_t idx)
 	x(BOOT_MGMT, 23) \
 	x(LINK_LATENCY, 24) \
 	x(CLIENT_REG, 25) \
-	x(IP_BASED_GIDS, 26)
+	x(OTHER_LOCAL_CHANGES, 26) \
+	x(LINK_SPPED_WIDTH, 27) \
+	x(VENDOR_SPECIFIC_MADS, 28) \
+	x(MULT_PKER_TRAP, 29) \
+	x(MULT_FDB, 30) \
+	x(HIERARCHY_INFO, 31)
 
-	enum { RDMA_PORT_FLAGS(RDMA_BITMAP_ENUM) };
+#define RDMA_PORT_FLAGS_HIGH(x) \
+	x(SET_NODE_DESC, 0) \
+	x(EXT_INFO, 1) \
+	x(VIRT, 2) \
+	x(SWITCH_POR_STATE_TABLE, 3) \
+	x(LINK_WIDTH_2X, 4) \
+	x(LINK_SPEED_HDR, 5)
+
+	/*
+	 * Separation below is needed to allow compilation of rdmatool
+	 * on 32bits systems. On such systems, C-enum is limited to be
+	 * int and can't hold more than 32 bits.
+	 */
+	enum { RDMA_PORT_FLAGS_LOW(RDMA_BITMAP_ENUM) };
+	enum { RDMA_PORT_FLAGS_HIGH(RDMA_BITMAP_ENUM) };
 
 	static const char * const
-		rdma_port_names[] = { RDMA_PORT_FLAGS(RDMA_BITMAP_NAMES) };
-	#undef RDMA_PORT_FLAGS
+		rdma_port_names_low[] = { RDMA_PORT_FLAGS_LOW(RDMA_BITMAP_NAMES) };
+	static const char * const
+		rdma_port_names_high[] = { RDMA_PORT_FLAGS_HIGH(RDMA_BITMAP_NAMES) };
+	uint32_t high_idx;
+	#undef RDMA_PORT_FLAGS_LOW
+	#undef RDMA_PORT_FLAGS_HIGH
 
-	if (idx < ARRAY_SIZE(rdma_port_names) && rdma_port_names[idx])
-		return rdma_port_names[idx];
+	if (idx < ARRAY_SIZE(rdma_port_names_low) && rdma_port_names_low[idx])
+		return rdma_port_names_low[idx];
+
+	high_idx = idx - ARRAY_SIZE(rdma_port_names_low);
+	if (high_idx < ARRAY_SIZE(rdma_port_names_high) &&
+	    rdma_port_names_high[high_idx])
+		return rdma_port_names_high[high_idx];
+
 	return "UNKNOWN";
 }
 

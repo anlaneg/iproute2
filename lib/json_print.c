@@ -100,6 +100,7 @@ void close_json_array(enum output_type type, const char *str)
  * functions handling different types
  */
 #define _PRINT_FUNC(type_name, type)					\
+	__attribute__((format(printf, 4, 0)))				\
 	void print_color_##type_name(enum output_type t,		\
 				     enum color_attr color,		\
 				     const char *key,			\
@@ -117,11 +118,12 @@ void close_json_array(enum output_type type, const char *str)
 	}
 _PRINT_FUNC(int, int);
 _PRINT_FUNC(s64, int64_t);
+_PRINT_FUNC(hhu, unsigned char);
 _PRINT_FUNC(hu, unsigned short);
 _PRINT_FUNC(uint, unsigned int);
 _PRINT_FUNC(u64, uint64_t);
-_PRINT_FUNC(luint, unsigned long int);
-_PRINT_FUNC(lluint, unsigned long long int);
+_PRINT_FUNC(luint, unsigned long);
+_PRINT_FUNC(lluint, unsigned long long);
 _PRINT_FUNC(float, double);
 #undef _PRINT_FUNC
 
@@ -171,12 +173,12 @@ void print_color_0xhex(enum output_type type,
 		       enum color_attr color,
 		       const char *key,
 		       const char *fmt,
-		       unsigned int hex)
+		       unsigned long long hex)
 {
 	if (_IS_JSON_CONTEXT(type)) {
 		SPRINT_BUF(b1);
 
-		snprintf(b1, sizeof(b1), "%#x", hex);
+		snprintf(b1, sizeof(b1), "%#llx", hex);
 		print_string(PRINT_JSON, key, NULL, b1);
 	} else if (_IS_FP_CONTEXT(type)) {
 		color_fprintf(stdout, color, fmt, hex);
@@ -220,4 +222,11 @@ void print_color_null(enum output_type type,
 	} else if (_IS_FP_CONTEXT(type)) {
 		color_fprintf(stdout, color, fmt, value);
 	}
+}
+
+/* Print line seperator (if not in JSON mode) */
+void print_nl(void)
+{
+	if (!_jw)
+		printf("%s", _SL_);
 }

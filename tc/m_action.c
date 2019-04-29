@@ -30,9 +30,9 @@
 
 static struct action_util *action_list;
 #ifdef CONFIG_GACT
-int gact_ld; /* f*ckin backward compatibility */
+static int gact_ld; /* f*ckin backward compatibility */
 #endif
-int tab_flush;
+static int tab_flush;
 
 static void act_usage(void)
 {
@@ -363,7 +363,7 @@ tc_print_action(FILE *f, const struct rtattr *arg, unsigned short tot_acts)
 
 	parse_rtattr_nested(tb, tot_acts, arg);
 
-	if (tab_flush && NULL != tb[0]  && NULL == tb[1])
+	if (tab_flush && tb[0] && !tb[1])
 		return tc_print_action_flush(f, tb[0]);
 
 	open_json_array(PRINT_JSON, "actions");
@@ -386,9 +386,7 @@ tc_print_action(FILE *f, const struct rtattr *arg, unsigned short tot_acts)
 	return 0;
 }
 
-int print_action(const struct sockaddr_nl *who,
-			   struct nlmsghdr *n,
-			   void *arg)
+int print_action(struct nlmsghdr *n, void *arg)
 {
 	FILE *fp = (FILE *)arg;
 	struct tcamsg *t = NLMSG_DATA(n);
@@ -541,7 +539,7 @@ static int tc_action_gd(int cmd, unsigned int flags,
 
 	if (cmd == RTM_GETACTION) {
 		new_json_obj(json);
-		ret = print_action(NULL, ans, stdout);
+		ret = print_action(ans, stdout);
 		if (ret < 0) {
 			fprintf(stderr, "Dump terminated\n");
 			free(ans);

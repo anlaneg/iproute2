@@ -27,6 +27,7 @@
 #include <linux/param.h>
 #include <linux/if_arp.h>
 #include <linux/mpls.h>
+#include <linux/snmp.h>
 #include <time.h>
 #include <sys/time.h>
 #include <errno.h>
@@ -42,6 +43,11 @@
 int resolve_hosts;
 int timestamp_short;
 int pretty;
+const char *_SL_ = "\n";
+
+static int af_byte_len(int af);
+static void print_time(char *buf, int len, __u32 time);
+static void print_time64(char *buf, int len, __s64 time);
 
 int read_prop(const char *dev, char *prop, long *value)
 {
@@ -382,6 +388,27 @@ int get_u8(__u8 *val, const char *arg, int base)
 	return 0;
 }
 
+int get_s64(__s64 *val, const char *arg, int base)
+{
+	long res;
+	char *ptr;
+
+	errno = 0;
+
+	if (!arg || !*arg)
+		return -1;
+	res = strtoll(arg, &ptr, base);
+	if (!ptr || ptr == arg || *ptr)
+		return -1;
+	if ((res == LLONG_MIN || res == LLONG_MAX) && errno == ERANGE)
+		return -1;
+	if (res > INT64_MAX || res < INT64_MIN)
+		return -1;
+
+	*val = res;
+	return 0;
+}
+
 int get_s32(__s32 *val, const char *arg, int base)
 {
 	long res;
@@ -399,43 +426,6 @@ int get_s32(__s32 *val, const char *arg, int base)
 	if (res > INT32_MAX || res < INT32_MIN)
 		return -1;
 
-	*val = res;
-	return 0;
-}
-
-int get_s16(__s16 *val, const char *arg, int base)
-{
-	long res;
-	char *ptr;
-
-	if (!arg || !*arg)
-		return -1;
-	res = strtol(arg, &ptr, base);
-	if (!ptr || ptr == arg || *ptr)
-		return -1;
-	if ((res == LONG_MIN || res == LONG_MAX) && errno == ERANGE)
-		return -1;
-	if (res > 0x7FFF || res < -0x8000)
-		return -1;
-
-	*val = res;
-	return 0;
-}
-
-int get_s8(__s8 *val, const char *arg, int base)
-{
-	long res;
-	char *ptr;
-
-	if (!arg || !*arg)
-		return -1;
-	res = strtol(arg, &ptr, base);
-	if (!ptr || ptr == arg || *ptr)
-		return -1;
-	if ((res == LONG_MIN || res == LONG_MAX) && errno == ERANGE)
-		return -1;
-	if (res > 0x7F || res < -0x80)
-		return -1;
 	*val = res;
 	return 0;
 }
@@ -610,18 +600,6 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 		return 0;
 	}
 
-	if (family == AF_DECnet) {
-		struct dn_naddr dna;
-
-		addr->family = AF_DECnet;
-		if (dnet_pton(AF_DECnet, name, &dna) <= 0)
-			return -1;
-		memcpy(addr->data, dna.a_addr, 2);
-		addr->bytelen = 2;
-		addr->bitlen = -1;
-		return 0;
-	}
-
 	if (family == AF_MPLS) {
 		unsigned int maxlabels;
 		int i;
@@ -685,7 +663,7 @@ int af_bit_len(int af)
 	return 0;
 }
 
-int af_byte_len(int af)
+static int af_byte_len(int af)
 {
 	return af_bit_len(af) / 8;
 }
@@ -1010,15 +988,6 @@ const char *rt_addr_n2a_r(int af, int len,
 		return inet_ntop(af, addr, buf, buflen);
 	case AF_MPLS:
 		return mpls_ntop(af, addr, buf, buflen);
-	case AF_IPX:
-		return ipx_ntop(af, addr, buf, buflen);
-	case AF_DECnet:
-	{
-		struct dn_naddr dna = { 2, { 0, 0, } };
-
-		memcpy(dna.a_addr, addr, 2);
-		return dnet_ntop(af, &dna, buf, buflen);
-	}
 	case AF_PACKET:
 		return ll_addr_n2a(addr, len, ARPHRD_VOID, buf, buflen);
 	case AF_BRIDGE:
@@ -1060,8 +1029,6 @@ int read_family(const char *name)
 		family = AF_INET;
 	else if (strcmp(name, "inet6") == 0)
 		family = AF_INET6;
-	else if (strcmp(name, "dnet") == 0)
-		family = AF_DECnet;
 	else if (strcmp(name, "link") == 0)
 		family = AF_PACKET;
 	else if (strcmp(name, "ipx") == 0)
@@ -1079,8 +1046,6 @@ const char *family_name(int family)
 		return "inet";
 	if (family == AF_INET6)
 		return "inet6";
-	if (family == AF_DECnet)
-		return "dnet";
 	if (family == AF_PACKET)
 		return "link";
 	if (family == AF_IPX)
@@ -1434,7 +1399,7 @@ int makeargs(char *line, char *argv[], int maxargs)
 				break;
 		}
 
-		/* seperate words */
+		/* separate words */
 		*cp++ = 0;
 	}
 	argv[argc] = NULL;
@@ -1488,7 +1453,7 @@ char *int_to_str(int val, char *buf)
 
 int get_guid(__u64 *guid, const char *arg)
 {
-	unsigned long int tmp;
+	unsigned long tmp;
 	char *endptr;
 	int i;
 
@@ -1548,6 +1513,24 @@ static void copy_rtnl_link_stats64(struct rtnl_link_stats64 *stats64,
 		*a++ = *b++;
 }
 
+#define IPSTATS_MIB_MAX_LEN	(__IPSTATS_MIB_MAX * sizeof(__u64))
+static void get_snmp_counters(struct rtnl_link_stats64 *stats64,
+			      struct rtattr *s)
+{
+	__u64 *mib = (__u64 *)RTA_DATA(s);
+
+	memset(stats64, 0, sizeof(*stats64));
+
+	stats64->rx_packets = mib[IPSTATS_MIB_INPKTS];
+	stats64->rx_bytes = mib[IPSTATS_MIB_INOCTETS];
+	stats64->tx_packets = mib[IPSTATS_MIB_OUTPKTS];
+	stats64->tx_bytes = mib[IPSTATS_MIB_OUTOCTETS];
+	stats64->rx_errors = mib[IPSTATS_MIB_INDISCARDS];
+	stats64->tx_errors = mib[IPSTATS_MIB_OUTDISCARDS];
+	stats64->multicast = mib[IPSTATS_MIB_INMCASTPKTS];
+	stats64->rx_frame_errors = mib[IPSTATS_MIB_CSUMERRORS];
+}
+
 int get_rtnl_link_stats_rta(struct rtnl_link_stats64 *stats64,
 			    struct rtattr *tb[])
 {
@@ -1564,6 +1547,14 @@ int get_rtnl_link_stats_rta(struct rtnl_link_stats64 *stats64,
 		rta = tb[IFLA_STATS];
 		size = sizeof(struct rtnl_link_stats);
 		s = &stats;
+	} else if (tb[IFLA_PROTINFO]) {
+		struct rtattr *ptb[IPSTATS_MIB_MAX_LEN + 1];
+
+		parse_rtattr_nested(ptb, IPSTATS_MIB_MAX_LEN,
+				    tb[IFLA_PROTINFO]);
+		if (ptb[IFLA_INET6_STATS])
+			get_snmp_counters(stats64, ptb[IFLA_INET6_STATS]);
+		return sizeof(*stats64);
 	} else {
 		return -1;
 	}
@@ -1632,4 +1623,104 @@ void drop_cap(void)
 		cap_free(capabilities);
 	}
 #endif
+}
+
+int get_time(unsigned int *time, const char *str)
+{
+	double t;
+	char *p;
+
+	t = strtod(str, &p);
+	if (p == str)
+		return -1;
+
+	if (*p) {
+		if (strcasecmp(p, "s") == 0 || strcasecmp(p, "sec") == 0 ||
+		    strcasecmp(p, "secs") == 0)
+			t *= TIME_UNITS_PER_SEC;
+		else if (strcasecmp(p, "ms") == 0 || strcasecmp(p, "msec") == 0 ||
+			 strcasecmp(p, "msecs") == 0)
+			t *= TIME_UNITS_PER_SEC/1000;
+		else if (strcasecmp(p, "us") == 0 || strcasecmp(p, "usec") == 0 ||
+			 strcasecmp(p, "usecs") == 0)
+			t *= TIME_UNITS_PER_SEC/1000000;
+		else
+			return -1;
+	}
+
+	*time = t;
+	return 0;
+}
+
+static void print_time(char *buf, int len, __u32 time)
+{
+	double tmp = time;
+
+	if (tmp >= TIME_UNITS_PER_SEC)
+		snprintf(buf, len, "%.1fs", tmp/TIME_UNITS_PER_SEC);
+	else if (tmp >= TIME_UNITS_PER_SEC/1000)
+		snprintf(buf, len, "%.1fms", tmp/(TIME_UNITS_PER_SEC/1000));
+	else
+		snprintf(buf, len, "%uus", time);
+}
+
+char *sprint_time(__u32 time, char *buf)
+{
+	print_time(buf, SPRINT_BSIZE-1, time);
+	return buf;
+}
+
+/* 64 bit times are represented internally in nanoseconds */
+int get_time64(__s64 *time, const char *str)
+{
+	double nsec;
+	char *p;
+
+	nsec = strtod(str, &p);
+	if (p == str)
+		return -1;
+
+	if (*p) {
+		if (strcasecmp(p, "s") == 0 ||
+		    strcasecmp(p, "sec") == 0 ||
+		    strcasecmp(p, "secs") == 0)
+			nsec *= NSEC_PER_SEC;
+		else if (strcasecmp(p, "ms") == 0 ||
+			 strcasecmp(p, "msec") == 0 ||
+			 strcasecmp(p, "msecs") == 0)
+			nsec *= NSEC_PER_MSEC;
+		else if (strcasecmp(p, "us") == 0 ||
+			 strcasecmp(p, "usec") == 0 ||
+			 strcasecmp(p, "usecs") == 0)
+			nsec *= NSEC_PER_USEC;
+		else if (strcasecmp(p, "ns") == 0 ||
+			 strcasecmp(p, "nsec") == 0 ||
+			 strcasecmp(p, "nsecs") == 0)
+			nsec *= 1;
+		else
+			return -1;
+	}
+
+	*time = nsec;
+	return 0;
+}
+
+static void print_time64(char *buf, int len, __s64 time)
+{
+	double nsec = time;
+
+	if (time >= NSEC_PER_SEC)
+		snprintf(buf, len, "%.3fs", nsec/NSEC_PER_SEC);
+	else if (time >= NSEC_PER_MSEC)
+		snprintf(buf, len, "%.3fms", nsec/NSEC_PER_MSEC);
+	else if (time >= NSEC_PER_USEC)
+		snprintf(buf, len, "%.3fus", nsec/NSEC_PER_USEC);
+	else
+		snprintf(buf, len, "%lldns", time);
+}
+
+char *sprint_time64(__s64 time, char *buf)
+{
+	print_time64(buf, SPRINT_BSIZE-1, time);
+	return buf;
 }

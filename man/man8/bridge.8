@@ -24,7 +24,8 @@ bridge \- show / manipulate bridge addresses and devices
 \fB\-b\fR[\fIatch\fR] filename |
 \fB\-c\fR[\folor\fR] |
 \fB\-p\fR[\fIretty\fR] |
-\fB\-j\fR[\fIson\fR] }
+\fB\-j\fR[\fIson\fR] |
+\fB\-o\fR[\fIneline\fr] }
 
 .ti -8
 .BR "bridge link set"
@@ -36,7 +37,7 @@ bridge \- show / manipulate bridge addresses and devices
 .B priority
 .IR PRIO " ] [ "
 .B state
-.IR STATE "] ["
+.IR STATE " ] [ "
 .BR guard " { " on " | " off " } ] [ "
 .BR hairpin " { " on " | " off " } ] [ "
 .BR fastleave " { " on " | " off " } ] [ "
@@ -46,8 +47,13 @@ bridge \- show / manipulate bridge addresses and devices
 .BR flood " { " on " | " off " } ] [ "
 .BR hwmode " { " vepa " | " veb " } ] [ "
 .BR mcast_flood " { " on " | " off " } ] [ "
+.BR mcast_to_unicast " { " on " | " off " } ] [ "
 .BR neigh_suppress " { " on " | " off " } ] [ "
 .BR vlan_tunnel " { " on " | " off " } ] [ "
+.BR isolated " { " on " | " off " } ] [ "
+.B backup_port
+.IR  DEVICE " ] ["
+.BR nobackup_port " ] [ "
 .BR self " ] [ " master " ]"
 
 .ti -8
@@ -61,9 +67,11 @@ bridge \- show / manipulate bridge addresses and devices
 .B dev
 .IR DEV " { "
 .BR local " | " static " | " dynamic " } [ "
-.BR self " ] [ " master " ] [ " router " ] [ " use " ] [ " extern_learn " ] [ "
+.BR self " ] [ " master " ] [ " router " ] [ " use " ] [ " extern_learn " ] [ " sticky " ] [ "
 .B dst
 .IR IPADDR " ] [ "
+.B src_vni
+.IR SRC_VNI " ] ["
 .B vni
 .IR VNI " ] ["
 .B port
@@ -170,8 +178,17 @@ If there were any errors during execution of the commands, the application
 return code will be non zero.
 
 .TP
-.BR "\-c" , " -color"
-Use color output.
+.BR \-c [ color ][ = { always | auto | never }
+Configure color output. If parameter is omitted or
+.BR always ,
+color output is enabled regardless of stdout state. If parameter is
+.BR auto ,
+stdout is checked to be a terminal before enabling color output. If parameter is
+.BR never ,
+color output is disabled. If specified multiple times, the last one takes
+precedence. This flag is ignored if
+.B \-json
+is also given.
 
 .TP
 .BR "\-j", " \-json"
@@ -180,6 +197,18 @@ Output results in JavaScript Object Notation (JSON).
 .TP
 .BR "\-p", " \-pretty"
 When combined with -j generate a pretty JSON output.
+
+.TP
+.BR "\-o", " \-oneline"
+output each record on a single line, replacing line feeds
+with the
+.B '\e'
+character. This is convenient when you want to count records
+with
+.BR wc (1)
+or to
+.BR grep (1)
+the output.
 
 
 .SH BRIDGE - COMMAND SYNTAX
@@ -318,7 +347,7 @@ Controls whether a given port will sync MAC addresses learned on device port to
 bridge FDB.
 
 .TP
-.BR "flooding on " or " flooding off "
+.BR "flood on " or " flood off "
 Controls whether a given port will flood unicast traffic for which there is no FDB entry. By default this flag is on.
 
 .TP
@@ -335,15 +364,38 @@ switch.
 
 .TP
 .BR "mcast_flood on " or " mcast_flood off "
-Controls whether a given port will be flooded with multicast traffic for which there is no MDB entry. By default this flag is on.
+Controls whether a given port will flood multicast traffic for which
+there is no MDB entry. By default this flag is on.
+
+.TP
+.BR "mcast_to_unicast on " or " mcast_to_unicast off "
+Controls whether a given port will replicate packets using unicast
+instead of multicast. By default this flag is off.
 
 .TP
 .BR "neigh_suppress on " or " neigh_suppress off "
-Controls whether neigh discovery (arp and nd) proxy and suppression is enabled on the port. By default this flag is off.
+Controls whether neigh discovery (arp and nd) proxy and suppression is
+enabled on the port. By default this flag is off.
 
 .TP
 .BR "vlan_tunnel on " or " vlan_tunnel off "
-Controls whether vlan to tunnel mapping is enabled on the port. By default this flag is off.
+Controls whether vlan to tunnel mapping is enabled on the port. By
+default this flag is off.
+
+.TP
+.BR "isolated on " or " isolated off "
+Controls whether a given port will be isolated, which means it will be
+able to communicate with non-isolated ports only.  By default this
+flag is off.
+
+.TP
+.BI backup_port " DEVICE"
+If the port loses carrier all traffic will be redirected to the
+configured backup port
+
+.TP
+.BR nobackup_port
+Removes the currently configured backup port
 
 .TP
 .BI self
@@ -420,6 +472,10 @@ indicate to the kernel that an entry was hardware or user-space
 controller learnt dynamic entry. Kernel will not age such an entry.
 .sp
 
+.B sticky
+- this entry will not change its port due to learning.
+.sp
+
 .in -8
 The next command line parameters apply only
 when the specified device
@@ -429,6 +485,13 @@ is of type VXLAN.
 .BI dst " IPADDR"
 the IP address of the destination
 VXLAN tunnel endpoint where the Ethernet MAC ADDRESS resides.
+
+.TP
+.BI src_vni " SRC VNI"
+the src VNI Network Identifier (or VXLAN Segment ID)
+this entry belongs to. Used only when the vxlan device is in
+external or collect metadata mode. If omitted the value specified at
+vxlan device creation will be used.
 
 .TP
 .BI vni " VNI"
@@ -582,9 +645,9 @@ the VLAN ID that identifies the vlan.
 
 .TP
 .BI tunnel_info " TUNNEL_ID"
-the TUNNEL ID that maps to this vlan. The tunnel id is set in dst_metadata for
-every packet that belongs to this vlan (applicable to bridge ports with vlan_tunnel
-flag set).
+the TUNNEL ID that maps to this vlan. The tunnel id is set in
+dst_metadata for every packet that belongs to this vlan (applicable to
+bridge ports with vlan_tunnel flag set).
 
 .TP
 .BI pvid

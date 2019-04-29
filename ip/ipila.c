@@ -81,8 +81,7 @@ static void print_ila_locid(const char *tag, int attr, struct rtattr *tb[])
 	print_string(PRINT_ANY, tag, "%-20s", abuf);
 }
 
-static int print_ila_mapping(const struct sockaddr_nl *who,
-			     struct nlmsghdr *n, void *arg)
+static int print_ila_mapping(struct nlmsghdr *n, void *arg)
 {
 	struct genlmsghdr *ghdr;
 	struct rtattr *tb[ILA_ATTR_MAX + 1];
@@ -128,7 +127,7 @@ static int print_ila_mapping(const struct sockaddr_nl *who,
 	else
 		print_string(PRINT_FP, NULL, "%s", "-");
 
-	print_string(PRINT_FP, NULL, "%s", _SL_);
+	print_nl();
 	close_json_object();
 
 	return 0;

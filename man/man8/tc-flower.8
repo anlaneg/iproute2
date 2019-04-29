@@ -34,6 +34,12 @@ flower \- flow based traffic control filter
 .IR PRIORITY " | "
 .BR vlan_ethtype " { " ipv4 " | " ipv6 " | "
 .IR ETH_TYPE " } | "
+.B cvlan_id
+.IR VID " | "
+.B cvlan_prio
+.IR PRIORITY " | "
+.BR cvlan_ethtype " { " ipv4 " | " ipv6 " | "
+.IR ETH_TYPE " } | "
 .B mpls_label
 .IR LABEL " | "
 .B mpls_tc
@@ -50,8 +56,9 @@ flower \- flow based traffic control filter
 .IR MASKED_IP_TTL " | { "
 .BR dst_ip " | " src_ip " } "
 .IR PREFIX " | { "
-.BR dst_port " | " src_port " } "
-.IR port_number " } | "
+.BR dst_port " | " src_port " } { "
+.IR port_number " | "
+.IR min_port_number-max_port_number " } | "
 .B tcp_flags
 .IR MASKED_TCP_FLAGS " | "
 .B type
@@ -70,6 +77,12 @@ flower \- flow based traffic control filter
 .IR ipv4_address " | " ipv6_address " } | "
 .B enc_dst_port
 .IR port_number " | "
+.B enc_tos
+.IR TOS " | "
+.B enc_ttl
+.IR TTL " | "
+.B geneve_opts
+.IR OPTIONS " | "
 .BR ip_flags
 .IR IP_FLAGS
 .SH DESCRIPTION
@@ -139,6 +152,23 @@ Match on layer three protocol.
 .I VLAN_ETH_TYPE
 may be either
 .BR ipv4 ", " ipv6
+or an unsigned 16bit value in hexadecimal format. To match on QinQ packet, it must be 802.1Q or 802.1AD.
+.TP
+.BI cvlan_id " VID"
+Match on QinQ inner vlan tag id.
+.I VID
+is an unsigned 12bit value in decimal format.
+.TP
+.BI cvlan_prio " PRIORITY"
+Match on QinQ inner vlan tag priority.
+.I PRIORITY
+is an unsigned 3bit value in decimal format.
+.TP
+.BI cvlan_ethtype " VLAN_ETH_TYPE"
+Match on QinQ layer three protocol.
+.I VLAN_ETH_TYPE
+may be either
+.BR ipv4 ", " ipv6
 or an unsigned 16bit value in hexadecimal format.
 .TP
 .BI mpls_label " LABEL"
@@ -191,10 +221,12 @@ must be a valid IPv4 or IPv6 address, depending on the \fBprotocol\fR
 option to tc filter, optionally followed by a slash and the prefix length.
 If the prefix is missing, \fBtc\fR assumes a full-length host match.
 .TP
-.BI dst_port " NUMBER"
+.IR \fBdst_port " { "  NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
 .TQ
-.BI src_port " NUMBER"
-Match on layer 4 protocol source or destination port number. Only available for
+.IR \fBsrc_port " { "  NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
+Match on layer 4 protocol source or destination port number. Alternatively, the
+mininum and maximum values can be specified to match on a range of layer 4
+protocol source or destination port numbers. Only available for
 .BR ip_proto " values " udp ", " tcp  " and " sctp
 which have to be specified in beforehand.
 .TP
@@ -252,6 +284,12 @@ bits is assumed.
 .BI enc_src_ip " PREFIX"
 .TQ
 .BI enc_dst_port " NUMBER"
+.TQ
+.BI enc_tos " NUMBER"
+.TQ
+.BI enc_ttl " NUMBER"
+.TQ
+.BI geneve_opts " OPTIONS"
 Match on IP tunnel metadata. Key id
 .I NUMBER
 is a 32 bit tunnel key id (e.g. VNI for VXLAN tunnel).
@@ -260,7 +298,18 @@ must be a valid IPv4 or IPv6 address optionally followed by a slash and the
 prefix length. If the prefix is missing, \fBtc\fR assumes a full-length
 host match.  Dst port
 .I NUMBER
-is a 16 bit UDP dst port.
+is a 16 bit UDP dst port. Tos
+.I NUMBER
+is an 8 bit tos (dscp+ecn) value, ttl
+.I NUMBER
+is an 8 bit time-to-live value. geneve_opts
+.I OPTIONS
+must be a valid list of comma-separated geneve options where each option
+consists of a key optionally followed by a slash and corresponding mask. If
+the masks is missing, \fBtc\fR assumes a full-length match. The options can
+be described in the form CLASS:TYPE:DATA/CLASS_MASK:TYPE_MASK:DATA_MASK,
+where CLASS is represented as a 16bit hexadecimal value, TYPE as an 8bit
+hexadecimal value and DATA as a variable length hexadecimal value.
 .TP
 .BI ip_flags " IP_FLAGS"
 .I IP_FLAGS

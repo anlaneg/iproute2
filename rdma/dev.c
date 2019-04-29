@@ -1,11 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * dev.c	RDMA tool
- *
- *              This program is free software; you can redistribute it and/or
- *              modify it under the terms of the GNU General Public License
- *              as published by the Free Software Foundation; either version
- *              2 of the License, or (at your option) any later version.
- *
  * Authors:     Leon Romanovsky <leonro@mellanox.com>
  */
 
@@ -14,12 +9,13 @@
 static int dev_help(struct rd *rd)
 {
 	pr_out("Usage: %s dev show [DEV]\n", rd->filename);
+	pr_out("       %s dev set [DEV] name DEVNAME\n", rd->filename);
 	return 0;
 }
 
 static const char *dev_caps_to_str(uint32_t idx)
 {
-#define RDMA_DEV_FLAGS(x) \
+#define RDMA_DEV_FLAGS_LOW(x) \
 	x(RESIZE_MAX_WR, 0) \
 	x(BAD_PKEY_CNTR, 1) \
 	x(BAD_QKEY_CNTR, 2) \
@@ -49,21 +45,39 @@ static const char *dev_caps_to_str(uint32_t idx)
 	x(CROSS_CHANNEL, 27) \
 	x(MANAGED_FLOW_STEERING, 29) \
 	x(SIGNATURE_HANDOVER, 30) \
-	x(ON_DEMAND_PAGING, 31) \
-	x(SG_GAPS_REG, 32) \
-	x(VIRTUAL_FUNCTION, 33) \
-	x(RAW_SCATTER_FCS, 34) \
-	x(RDMA_NETDEV_OPA_VNIC, 35) \
-	x(PCI_WRITE_END_PADDING, 36)
+	x(ON_DEMAND_PAGING, 31)
 
-	enum { RDMA_DEV_FLAGS(RDMA_BITMAP_ENUM) };
+#define RDMA_DEV_FLAGS_HIGH(x) \
+	x(SG_GAPS_REG, 0) \
+	x(VIRTUAL_FUNCTION, 1) \
+	x(RAW_SCATTER_FCS, 2) \
+	x(RDMA_NETDEV_OPA_VNIC, 3) \
+	x(PCI_WRITE_END_PADDING, 4)
+
+	/*
+	 * Separation below is needed to allow compilation of rdmatool
+	 * on 32bits systems. On such systems, C-enum is limited to be
+	 * int and can't hold more than 32 bits.
+	 */
+	enum { RDMA_DEV_FLAGS_LOW(RDMA_BITMAP_ENUM) };
+	enum { RDMA_DEV_FLAGS_HIGH(RDMA_BITMAP_ENUM) };
 
 	static const char * const
-		rdma_dev_names[] = { RDMA_DEV_FLAGS(RDMA_BITMAP_NAMES) };
-	#undef RDMA_DEV_FLAGS
+		rdma_dev_names_low[] = { RDMA_DEV_FLAGS_LOW(RDMA_BITMAP_NAMES) };
+	static const char * const
+		rdma_dev_names_high[] = { RDMA_DEV_FLAGS_HIGH(RDMA_BITMAP_NAMES) };
+	uint32_t high_idx;
+	#undef RDMA_DEV_FLAGS_LOW
+	#undef RDMA_DEV_FLAGS_HIGH
 
-	if (idx < ARRAY_SIZE(rdma_dev_names) && rdma_dev_names[idx])
-		return rdma_dev_names[idx];
+	if (idx < ARRAY_SIZE(rdma_dev_names_low) && rdma_dev_names_low[idx])
+		return rdma_dev_names_low[idx];
+
+	high_idx = idx - ARRAY_SIZE(rdma_dev_names_low);
+	if (high_idx <  ARRAY_SIZE(rdma_dev_names_high) &&
+	    rdma_dev_names_high[high_idx])
+		return rdma_dev_names_high[high_idx];
+
 	return "UNKNOWN";
 }
 
@@ -240,9 +254,42 @@ static int dev_one_show(struct rd *rd)
 	return rd_exec_cmd(rd, cmds, "parameter");
 }
 
+static int dev_set_name(struct rd *rd)
+{
+	uint32_t seq;
+
+	if (rd_no_arg(rd)) {
+		pr_err("Please provide device new name.\n");
+		return -EINVAL;
+	}
+
+	rd_prepare_msg(rd, RDMA_NLDEV_CMD_SET,
+		       &seq, (NLM_F_REQUEST | NLM_F_ACK));
+	mnl_attr_put_u32(rd->nlh, RDMA_NLDEV_ATTR_DEV_INDEX, rd->dev_idx);
+	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_DEV_NAME, rd_argv(rd));
+
+	return rd_send_msg(rd);
+}
+
+static int dev_one_set(struct rd *rd)
+{
+	const struct rd_cmd cmds[] = {
+		{ NULL,		dev_help},
+		{ "name",	dev_set_name},
+		{ 0 }
+	};
+
+	return rd_exec_cmd(rd, cmds, "parameter");
+}
+
 static int dev_show(struct rd *rd)
 {
 	return rd_exec_dev(rd, dev_one_show);
+}
+
+static int dev_set(struct rd *rd)
+{
+	return rd_exec_require_dev(rd, dev_one_set);
 }
 
 int cmd_dev(struct rd *rd)
@@ -251,6 +298,7 @@ int cmd_dev(struct rd *rd)
 		{ NULL,		dev_show },
 		{ "show",	dev_show },
 		{ "list",	dev_show },
+		{ "set",	dev_set },
 		{ "help",	dev_help },
 		{ 0 }
 	};

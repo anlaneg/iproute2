@@ -424,9 +424,9 @@ get_failed:
 	addattr32(n, 1024, IFLA_GRE_OKEY, okey);
 	addattr_l(n, 1024, IFLA_GRE_IFLAGS, &iflags, 2);
 	addattr_l(n, 1024, IFLA_GRE_OFLAGS, &oflags, 2);
-	if (is_addrtype_inet(&saddr))
+	if (is_addrtype_inet_not_unspec(&saddr))
 		addattr_l(n, 1024, IFLA_GRE_LOCAL, saddr.data, saddr.bytelen);
-	if (is_addrtype_inet(&daddr))
+	if (is_addrtype_inet_not_unspec(&daddr))
 		addattr_l(n, 1024, IFLA_GRE_REMOTE, daddr.data, daddr.bytelen);
 	if (link)
 		addattr32(n, 1024, IFLA_GRE_LINK, link);
@@ -465,7 +465,7 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 		return;
 
 	if (tb[IFLA_GRE_COLLECT_METADATA]) {
-		print_bool(PRINT_ANY, "external", "external", true);
+		print_bool(PRINT_ANY, "external", "external ", true);
 		return;
 	}
 
@@ -576,7 +576,7 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 
 		if (fwmark) {
 			print_0xhex(PRINT_ANY,
-				    "fwmark", "fwmark 0x%x ", fwmark);
+				    "fwmark", "fwmark %#llx ", fwmark);
 		}
 	}
 
@@ -609,7 +609,7 @@ static void gre_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 		__u16 erspan_hwid = rta_getattr_u16(tb[IFLA_GRE_ERSPAN_HWID]);
 
 		print_0xhex(PRINT_ANY,
-			    "erspan_hwid", "erspan_hwid 0x%x ", erspan_hwid);
+			    "erspan_hwid", "erspan_hwid %#llx ", erspan_hwid);
 	}
 
 	tnl_print_encap(tb,

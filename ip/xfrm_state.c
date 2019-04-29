@@ -61,10 +61,14 @@ static void usage(void)
 	fprintf(stderr, "        [ flag FLAG-LIST ] [ sel SELECTOR ] [ LIMIT-LIST ] [ encap ENCAP ]\n");
 	fprintf(stderr, "        [ coa ADDR[/PLEN] ] [ ctx CTX ] [ extra-flag EXTRA-FLAG-LIST ]\n");
 	fprintf(stderr, "        [ offload [dev DEV] dir DIR ]\n");
+	fprintf(stderr, "        [ output-mark OUTPUT-MARK ]\n");
++	fprintf(stderr, "        [ if_id IF_ID ]\n");
 	fprintf(stderr, "Usage: ip xfrm state allocspi ID [ mode MODE ] [ mark MARK [ mask MASK ] ]\n");
 	fprintf(stderr, "        [ reqid REQID ] [ seq SEQ ] [ min SPI max SPI ]\n");
 	fprintf(stderr, "Usage: ip xfrm state { delete | get } ID [ mark MARK [ mask MASK ] ]\n");
-	fprintf(stderr, "Usage: ip xfrm state { deleteall | list } [ ID ] [ mode MODE ] [ reqid REQID ]\n");
+	fprintf(stderr, "Usage: ip xfrm state deleteall [ ID ] [ mode MODE ] [ reqid REQID ]\n");
+	fprintf(stderr, "        [ flag FLAG-LIST ]\n");
+	fprintf(stderr, "Usage: ip xfrm state list [ nokeys ] [ ID ] [ mode MODE ] [ reqid REQID ]\n");
 	fprintf(stderr, "        [ flag FLAG-LIST ]\n");
 	fprintf(stderr, "Usage: ip xfrm state flush [ proto XFRM-PROTO ]\n");
 	fprintf(stderr, "Usage: ip xfrm state count\n");
@@ -322,6 +326,9 @@ static int xfrm_state_modify(int cmd, unsigned int flags, int argc, char **argv)
 		struct xfrm_user_sec_ctx sctx;
 		char    str[CTX_BUF_SIZE];
 	} ctx = {};
+	__u32 output_mark = 0;
+	bool is_if_id_set = false;
+	__u32 if_id = 0;
 
 	while (argc > 0) {
 		if (strcmp(*argv, "mode") == 0) {
@@ -437,6 +444,15 @@ static int xfrm_state_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("value after \"offload dir\" is invalid", *argv);
 				is_offload = false;
 			}
+		} else if (strcmp(*argv, "output-mark") == 0) {
+			NEXT_ARG();
+			if (get_u32(&output_mark, *argv, 0))
+				invarg("value after \"output-mark\" is invalid", *argv);
+		} else if (strcmp(*argv, "if_id") == 0) {
+			NEXT_ARG();
+			if (get_u32(&if_id, *argv, 0))
+				invarg("value after \"if_id\" is invalid", *argv);
+			is_if_id_set = true;
 		} else {
 			/* try to assume ALGO */
 			int type = xfrm_algotype_getbyname(*argv);
@@ -619,6 +635,9 @@ static int xfrm_state_modify(int cmd, unsigned int flags, int argc, char **argv)
 		}
 	}
 
+	if (is_if_id_set)
+		addattr32(&req.n, sizeof(req.buf), XFRMA_IF_ID, if_id);
+
 	if (xfrm_xfrmproto_is_ipsec(req.xsinfo.id.proto)) {
 		switch (req.xsinfo.mode) {
 		case XFRM_MODE_TRANSPORT:
@@ -719,6 +738,9 @@ static int xfrm_state_modify(int cmd, unsigned int flags, int argc, char **argv)
 			exit(1);
 		}
 	}
+
+	if (output_mark)
+		addattr32(&req.n, sizeof(req.buf), XFRMA_OUTPUT_MARK, output_mark);
 
 	if (rtnl_open_byproto(&rth, 0, NETLINK_XFRM) < 0)
 		exit(1);
@@ -860,7 +882,7 @@ static int xfrm_state_allocspi(int argc, char **argv)
 	if (rtnl_talk(&rth, &req.n, &answer) < 0)
 		exit(2);
 
-	if (xfrm_state_print(NULL, answer, (void *)stdout) < 0) {
+	if (xfrm_state_print(answer, (void *)stdout) < 0) {
 		fprintf(stderr, "An error :-)\n");
 		exit(1);
 	}
@@ -899,8 +921,7 @@ static int xfrm_state_filter_match(struct xfrm_usersa_info *xsinfo)
 	return 1;
 }
 
-int xfrm_state_print(const struct sockaddr_nl *who, struct nlmsghdr *n,
-		     void *arg)
+static int __do_xfrm_state_print(struct nlmsghdr *n, void *arg, bool nokeys)
 {
 	FILE *fp = (FILE *)arg;
 	struct rtattr *tb[XFRMA_MAX+1];
@@ -920,7 +941,7 @@ int xfrm_state_print(const struct sockaddr_nl *who, struct nlmsghdr *n,
 	}
 
 	if (n->nlmsg_type == XFRM_MSG_DELSA) {
-		/* Dont blame me for this .. Herbert made me do it */
+		/* Don't blame me for this .. Herbert made me do it */
 		xsid = NLMSG_DATA(n);
 		len -= NLMSG_SPACE(sizeof(*xsid));
 	} else if (n->nlmsg_type == XFRM_MSG_EXPIRE) {
@@ -971,7 +992,7 @@ int xfrm_state_print(const struct sockaddr_nl *who, struct nlmsghdr *n,
 		xsinfo = RTA_DATA(tb[XFRMA_SA]);
 	}
 
-	xfrm_state_info_print(xsinfo, tb, fp, NULL, NULL);
+	xfrm_state_info_print(xsinfo, tb, fp, NULL, NULL, nokeys);
 
 	if (n->nlmsg_type == XFRM_MSG_EXPIRE) {
 		fprintf(fp, "\t");
@@ -984,6 +1005,16 @@ int xfrm_state_print(const struct sockaddr_nl *who, struct nlmsghdr *n,
 	fflush(fp);
 
 	return 0;
+}
+
+int xfrm_state_print(struct nlmsghdr *n, void *arg)
+{
+	return __do_xfrm_state_print(n, arg, false);
+}
+
+int xfrm_state_print_nokeys(struct nlmsghdr *n, void *arg)
+{
+	return __do_xfrm_state_print(n, arg, true);
 }
 
 static int xfrm_state_get_or_delete(int argc, char **argv, int delete)
@@ -1054,7 +1085,7 @@ static int xfrm_state_get_or_delete(int argc, char **argv, int delete)
 		if (rtnl_talk(&rth, &req.n, &answer) < 0)
 			exit(2);
 
-		if (xfrm_state_print(NULL, answer, (void *)stdout) < 0) {
+		if (xfrm_state_print(answer, (void *)stdout) < 0) {
 			fprintf(stderr, "An error :-)\n");
 			exit(1);
 		}
@@ -1071,9 +1102,7 @@ static int xfrm_state_get_or_delete(int argc, char **argv, int delete)
  * With an existing state of nlmsg, make new nlmsg for deleting the state
  * and store it to buffer.
  */
-static int xfrm_state_keep(const struct sockaddr_nl *who,
-			   struct nlmsghdr *n,
-			   void *arg)
+static int xfrm_state_keep(struct nlmsghdr *n, void *arg)
 {
 	struct xfrm_buffer *xb = (struct xfrm_buffer *)arg;
 	struct rtnl_handle *rth = xb->rth;
@@ -1139,13 +1168,16 @@ static int xfrm_state_list_or_deleteall(int argc, char **argv, int deleteall)
 {
 	char *idp = NULL;
 	struct rtnl_handle rth;
+	bool nokeys = false;
 
 	if (argc > 0)
 		filter.use = 1;
 	filter.xsinfo.family = preferred_family;
 
 	while (argc > 0) {
-		if (strcmp(*argv, "mode") == 0) {
+		if (strcmp(*argv, "nokeys") == 0) {
+			nokeys = true;
+		} else if (strcmp(*argv, "mode") == 0) {
 			NEXT_ARG();
 			xfrm_mode_parse(&filter.xsinfo.mode, &argc, &argv);
 
@@ -1261,7 +1293,9 @@ static int xfrm_state_list_or_deleteall(int argc, char **argv, int deleteall)
 			exit(1);
 		}
 
-		if (rtnl_dump_filter(&rth, xfrm_state_print, stdout) < 0) {
+		rtnl_filter_t filter = nokeys ?
+				xfrm_state_print_nokeys : xfrm_state_print;
+		if (rtnl_dump_filter(&rth, filter, stdout) < 0) {
 			fprintf(stderr, "Dump terminated\n");
 			exit(1);
 		}
