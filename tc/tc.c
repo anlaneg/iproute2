@@ -211,6 +211,7 @@ static int do_cmd(int argc, char **argv, void *buf, size_t buflen)
 	if (matches(*argv, "class") == 0)
 		return do_class(argc-1, argv+1);
 	if (matches(*argv, "filter") == 0)
+		//做filter相关的操作
 		return do_filter(argc-1, argv+1, buf, buflen);
 	if (matches(*argv, "chain") == 0)
 		return do_chain(argc-1, argv+1, buf, buflen);

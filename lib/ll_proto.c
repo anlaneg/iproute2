@@ -100,6 +100,7 @@ const char * ll_proto_n2a(unsigned short id, char *buf, int len)
         return buf;
 }
 
+//实现协议名称与协议号的查找
 int ll_proto_a2n(unsigned short *id, const char *buf)
 {
         int i;

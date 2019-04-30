@@ -1258,6 +1258,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "action") == 0) {
 			NEXT_ARG();
+			//action参数解析
 			ret = parse_action(&argc, &argv, TCA_FLOWER_ACT, n);
 			if (ret) {
 				fprintf(stderr, "Illegal \"action\"\n");

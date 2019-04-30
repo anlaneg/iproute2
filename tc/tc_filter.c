@@ -100,11 +100,14 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
 			if (d[0])
+				//已设置dev名称，报错
 				duparg("dev", *argv);
 			if (block_index) {
+				//block_index与dev参数互斥
 				fprintf(stderr, "Error: \"dev\" and \"block\" are mutually exlusive\n");
 				return -1;
 			}
+			//设置设备名称
 			strncpy(d, *argv, sizeof(d)-1);
 		} else if (matches(*argv, "block") == 0) {
 			NEXT_ARG();
@@ -165,6 +168,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 
 			NEXT_ARG();
 			if (protocol_set)
+				//protocol参数已存在，报错
 				duparg("protocol", *argv);
 			if (ll_proto_a2n(&id, *argv))
 				invarg("invalid protocol", *argv);
@@ -185,7 +189,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 			return 0;
 		} else {
 			strncpy(k, *argv, sizeof(k)-1);
-
+			//遇到非内置关键字，查找filter,并跳出
 			q = get_filter_kind(k);
 			argc--; argv++;
 			break;
@@ -757,6 +761,7 @@ int do_filter(int argc, char **argv, void *buf, size_t buflen)
 	if (argc < 1)
 		return tc_filter_list(RTM_GETTFILTER, 0, NULL);
 	if (matches(*argv, "add") == 0)
+		//做filter添加工作
 		return tc_filter_modify(RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE,
 					argc-1, argv+1, buf, buflen);
 	if (matches(*argv, "change") == 0)

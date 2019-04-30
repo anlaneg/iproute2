@@ -61,6 +61,7 @@ void cls_names_uninit(void)
 	db_names_free(cls_names);
 }
 
+//加载tc lib目录
 const char *get_tc_lib(void)
 {
 	const char *lib_dir;
@@ -488,6 +489,7 @@ int action_a2n(char *arg, int *result, bool allow_num)
 		{ NULL },
 	}, *iter;
 
+	//检查参数是否为a2n中的一个action
 	for (iter = a2n; iter->a; iter++) {
 		if (matches(arg, iter->a) != 0)
 			continue;

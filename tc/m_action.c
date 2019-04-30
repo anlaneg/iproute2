@@ -95,11 +95,13 @@ static struct action_util *get_action_kind(char *str)
 	int looked4gact = 0;
 restart_s:
 #endif
+	//在缓存的action_list中查找
 	for (a = action_list; a; a = a->next) {
 		if (strcmp(a->id, str) == 0)
 			return a;
 	}
 
+	//缓存的action list中未找到，载入so
 	snprintf(buf, sizeof(buf), "%s/m_%s.so", get_tc_lib(), str);
 	dlh = dlopen(buf, RTLD_LAZY | RTLD_GLOBAL);
 	if (dlh == NULL) {
@@ -111,6 +113,7 @@ restart_s:
 		}
 	}
 
+	//查找指定名称结构体
 	snprintf(buf, sizeof(buf), "%s_action_util", str);
 	a = dlsym(dlh, buf);
 	if (a == NULL)
@@ -188,11 +191,13 @@ int parse_action(int *argc_p, char ***argv_p, int tca_id, struct nlmsghdr *n)
 		} else if (strcmp(*argv, "help") == 0) {
 			return -1;
 		} else if (new_cmd(argv)) {
+			//argv为操作符情况
 			goto done0;
 		} else {
 			struct action_util *a = NULL;
 
 			if (!action_a2n(*argv, NULL, false))
+				//可以由gact_action_util处理的action
 				strncpy(k, "gact", sizeof(k) - 1);
 			else
 				strncpy(k, *argv, sizeof(k) - 1);
@@ -207,6 +212,7 @@ done0:
 					goto done;
 			}
 
+			//未找到action结构体，报错
 			if (a == NULL)
 				goto bad_val;
 
