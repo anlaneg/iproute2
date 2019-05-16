@@ -102,12 +102,15 @@ static int flower_parse_eth_addr(char *str, int addr_type, int mask_type,
 	if (slash)
 		*slash = '\0';
 
+	//mac解析
 	ret = ll_addr_a2n(addr, sizeof(addr), str);
 	if (ret < 0)
 		goto err;
+	//存入mac地址到buffer
 	addattr_l(n, MAX_MSG, addr_type, addr, sizeof(addr));
 
 	if (slash) {
+		//支持mac的掩码形式
 		unsigned bits;
 
 		if (!get_unsigned(&bits, slash + 1, 10)) {
@@ -124,8 +127,10 @@ static int flower_parse_eth_addr(char *str, int addr_type, int mask_type,
 				goto err;
 		}
 	} else {
+		//全掩码形式
 		memset(addr, 0xff, ETH_ALEN);
 	}
+	//存入掩码
 	addattr_l(n, MAX_MSG, mask_type, addr, sizeof(addr));
 
 	err = 0;
@@ -1027,6 +1032,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "src_mac") == 0) {
 			NEXT_ARG();
+			//解析并存入srcmac
 			ret = flower_parse_eth_addr(*argv,
 						    TCA_FLOWER_KEY_ETH_SRC,
 						    TCA_FLOWER_KEY_ETH_SRC_MASK,
@@ -1081,6 +1087,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				return -1;
 			}
 		} else if (matches(*argv, "src_ip") == 0) {
+			//解析源ip及mask
 			NEXT_ARG();
 			ret = flower_parse_ip_addr(*argv, cvlan_ethtype ?
 						   cvlan_ethtype : vlan_ethtype ?

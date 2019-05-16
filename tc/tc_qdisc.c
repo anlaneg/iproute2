@@ -70,6 +70,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG();
 			if (d[0])
 				duparg("dev", *argv);
+			/*记录要下发的dev名称*/
 			strncpy(d, *argv, sizeof(d)-1);
 		} else if (strcmp(*argv, "handle") == 0) {
 			__u32 handle;
@@ -194,6 +195,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 	}
 
 	if (d[0])  {
+		//由接口名称转接口ifindex
 		int idx;
 
 		ll_init_map(&rth);

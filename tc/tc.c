@@ -207,6 +207,7 @@ static void usage(void)
 static int do_cmd(int argc, char **argv, void *buf, size_t buflen)
 {
 	if (matches(*argv, "qdisc") == 0)
+		//例如 tc qdisc add dev enp4s0f0 ingress
 		return do_qdisc(argc-1, argv+1);
 	if (matches(*argv, "class") == 0)
 		return do_class(argc-1, argv+1);
