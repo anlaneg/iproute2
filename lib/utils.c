@@ -322,6 +322,7 @@ int get_u32(__u32 *val, const char *arg, int base)
 
 	if (!arg || !*arg)
 		return -1;
+	//转为数字
 	res = strtoul(arg, &ptr, base);
 
 	/* empty string or trailing non-digits */
@@ -887,6 +888,7 @@ const char *get_ifname_rta(int ifindex, const struct rtattr *rta)
 	return name;
 }
 
+//字符串前缀匹配（匹配pattern长度）
 int matches(const char *cmd, const char *pattern)
 {
 	int len = strlen(cmd);

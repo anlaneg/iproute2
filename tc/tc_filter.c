@@ -117,6 +117,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 				fprintf(stderr, "Error: \"dev\" and \"block\" are mutually exlusive\n");
 				return -1;
 			}
+			//解析block index
 			if (get_u32(&block_index, *argv, 0) || !block_index)
 				invarg("invalid block index value", *argv);
 		} else if (strcmp(*argv, "root") == 0) {
@@ -148,6 +149,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 			NEXT_ARG();
 			if (req->t.tcm_parent)
 				duparg("parent", *argv);
+			//解析major,minor
 			if (get_tc_classid(&handle, *argv))
 				invarg("Invalid parent ID", *argv);
 			req->t.tcm_parent = handle;
@@ -158,12 +160,14 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 			fhandle = *argv;
 		} else if (matches(*argv, "preference") == 0 ||
 			   matches(*argv, "priority") == 0) {
+			/*指定filter的优先级*/
 			NEXT_ARG();
 			if (prio)
 				duparg("priority", *argv);
 			if (get_u32(&prio, *argv, 0) || prio > 0xFFFF)
 				invarg("invalid priority value", *argv);
 		} else if (matches(*argv, "protocol") == 0) {
+			/*指定针对哪种协议添加filter,例如ip,802.1q*/
 			__u16 id;
 
 			NEXT_ARG();
@@ -175,9 +179,11 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 			protocol = id;
 			protocol_set = 1;
 		} else if (matches(*argv, "chain") == 0) {
+			/*指定chain索引*/
 			NEXT_ARG();
 			if (chain_index_set)
 				duparg("chain", *argv);
+			//转为chain_index
 			if (get_u32(&chain_index, *argv, 0))
 				invarg("invalid chain index value", *argv);
 			chain_index_set = 1;
@@ -203,9 +209,11 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 	if (chain_index_set)
 		addattr32(&req->n, sizeof(*req), TCA_CHAIN, chain_index);
 
+	//filter名称
 	if (k[0])
 		addattr_l(&req->n, sizeof(*req), TCA_KIND, k, strlen(k)+1);
 
+	//待操作dev的ifindex
 	if (d[0])  {
 		ll_init_map(&rth);
 
@@ -218,6 +226,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 	}
 
 	if (q) {
+		//解析选项配置
 		if (q->parse_fopt(q, fhandle, argc, argv, &req->n))
 			return 1;
 	} else {
@@ -244,6 +253,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 
 	iov.iov_base = &req->n;
 	iov.iov_len = req->n.nlmsg_len;
+	//netlink通信
 	ret = rtnl_talk_iov(&rth, &iov, 1, NULL);
 	if (ret < 0) {
 		fprintf(stderr, "We have an error talking to the kernel, %d\n", ret);

@@ -46,8 +46,10 @@ extern __u16 f_proto;
 struct filter_util {
 	struct filter_util *next;
 	char id[FILTER_NAMESZ];
+	//选项解析为netlink消息
 	int (*parse_fopt)(struct filter_util *qu, char *fhandle,
 			  int argc, char **argv, struct nlmsghdr *n);
+	//由netlink消息解析成字符串并输出
 	int (*print_fopt)(struct filter_util *qu,
 			  FILE *f, struct rtattr *opt, __u32 fhandle);
 };

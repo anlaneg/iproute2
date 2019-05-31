@@ -42,6 +42,7 @@ static int usage(void)
 	return -1;
 }
 
+//处理类型“tc qdisc add dev enp4s0f0 ingress”这样的命令行，增加修改qdisc
 static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 {
 	struct qdisc_util *q = NULL;
@@ -50,7 +51,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 		struct tc_sizespec	szopts;
 		__u16			*data;
 	} stab = {};
-	char  d[IFNAMSIZ] = {};
+	char  d[IFNAMSIZ] = {};/*记录要操纵的接口名称*/
 	char  k[FILTER_NAMESZ] = {};
 	struct {
 		struct nlmsghdr	n;
@@ -99,10 +100,12 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG_FWD();
 			break;
 		} else if (strcmp(*argv, "ingress") == 0) {
+			//指定采用ingress方向
 			if (req.t.tcm_parent) {
 				fprintf(stderr, "Error: \"ingress\" is a duplicate parent ID\n");
 				return -1;
 			}
+			//指定ingress方向
 			req.t.tcm_parent = TC_H_INGRESS;
 			strncpy(k, "ingress", sizeof(k) - 1);
 			q = get_qdisc_kind(k);
@@ -415,6 +418,7 @@ static int tc_qdisc_list(int argc, char **argv)
 	return 0;
 }
 
+//处理 "tc qdisc" 开头的命令
 int do_qdisc(int argc, char **argv)
 {
 	if (argc < 1)

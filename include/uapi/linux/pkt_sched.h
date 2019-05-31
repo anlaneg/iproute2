@@ -64,7 +64,9 @@ struct tc_estimator {
     Macros to manipulate handles:
  */
 
+//majo占用前两个字节
 #define TC_H_MAJ_MASK (0xFFFF0000U)
+//min占用后两个字节
 #define TC_H_MIN_MASK (0x0000FFFFU)
 #define TC_H_MAJ(h) ((h)&TC_H_MAJ_MASK)
 #define TC_H_MIN(h) ((h)&TC_H_MIN_MASK)

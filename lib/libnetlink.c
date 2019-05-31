@@ -1362,6 +1362,7 @@ int parse_rtattr_flags(struct rtattr *tb[], int max, struct rtattr *rta,
 
 	memset(tb, 0, sizeof(struct rtattr *) * (max + 1));
 	while (RTA_OK(rta, len)) {
+		//解析rta,填充到tb数组中
 		type = rta->rta_type & ~flags;
 		if ((type <= max) && (!tb[type]))
 			tb[type] = rta;

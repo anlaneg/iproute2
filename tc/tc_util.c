@@ -103,17 +103,23 @@ int get_tc_classid(__u32 *h, const char *str)
 	maj = TC_H_UNSPEC;
 	if (strcmp(str, "none") == 0)
 		goto ok;
+	//将	16进制的字符串转换为p
 	maj = strtoul(str, &p, 16);
 	if (p == str) {
 		maj = 0;
 		if (*p != ':')
 			return -1;
 	}
+	//遇到':',认为:前为major
 	if (*p == ':') {
 		if (maj >= (1<<16))
 			return -1;
 		maj <<= 16;
+
+		//跳过':'
 		str = p+1;
+
+		//解析min
 		min = strtoul(str, &p, 16);
 		if (*p != 0)
 			return -1;

@@ -553,7 +553,7 @@ struct tcmsg {
 	unsigned char	tcm_family;
 	unsigned char	tcm__pad1;
 	unsigned short	tcm__pad2;
-	int		tcm_ifindex;
+	int		tcm_ifindex/*接口ifindex*/;
 	__u32		tcm_handle;
 	__u32		tcm_parent;
 /* tcm_block_index is used instead of tcm_parent

@@ -803,7 +803,7 @@ static int flower_parse_enc_opts(char *str, struct nlmsghdr *n)
 }
 
 static int flower_parse_opt(struct filter_util *qu, char *handle,
-			    int argc, char **argv, struct nlmsghdr *n)
+			    int argc, char **argv, struct nlmsghdr *n/*出参，保存解析的参数*/)
 {
 	int ret;
 	struct tcmsg *t = NLMSG_DATA(n);
@@ -1739,6 +1739,7 @@ static void flower_print_arp_op(const char *name,
 			       flower_print_arp_op_to_name);
 }
 
+//dump flower的配置
 static int flower_print_opt(struct filter_util *qu, FILE *f,
 			    struct rtattr *opt, __u32 handle)
 {
@@ -1751,6 +1752,7 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	if (!opt)
 		return 0;
 
+	//解析opt到tbl中，然后分别显示tbl
 	parse_rtattr_nested(tb, TCA_FLOWER_MAX, opt);
 
 	if (handle)
@@ -1963,6 +1965,7 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	return 0;
 }
 
+//flower对应的选项解析
 struct filter_util flower_filter_util = {
 	.id = "flower",
 	.parse_fopt = flower_parse_opt,
