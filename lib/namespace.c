@@ -46,6 +46,7 @@ static void bind_etc(const char *name)
 	closedir(dir);
 }
 
+//切换到$name对应的netns中
 int netns_switch(char *name)
 {
 	char net_path[PATH_MAX];
@@ -53,6 +54,7 @@ int netns_switch(char *name)
 	unsigned long mountflags = 0;
 	struct statvfs fsstat;
 
+	//打开指定名称的netns
 	snprintf(net_path, sizeof(net_path), "%s/%s", NETNS_RUN_DIR, name);
 	netns = open(net_path, O_RDONLY | O_CLOEXEC);
 	if (netns < 0) {
@@ -61,6 +63,7 @@ int netns_switch(char *name)
 		return -1;
 	}
 
+	//关联到netns
 	if (setns(netns, CLONE_NEWNET) < 0) {
 		fprintf(stderr, "setting the network namespace \"%s\" failed: %s\n",
 			name, strerror(errno));
