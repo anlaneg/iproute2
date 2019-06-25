@@ -104,6 +104,7 @@ static const struct cmd {
 	{ 0 }
 };
 
+//如果argv0与cmd匹配，则执行cmd对应的function
 static int do_cmd(const char *argv0, int argc, char **argv)
 {
 	const struct cmd *c;

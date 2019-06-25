@@ -34,6 +34,7 @@ int cmd_exec(const char *cmd, char **argv, bool do_fork)
 		}
 	}
 
+	//执行对应的命令
 	if (execvp(cmd, argv)  < 0)
 		fprintf(stderr, "exec of \"%s\" failed: %s\n",
 				cmd, strerror(errno));

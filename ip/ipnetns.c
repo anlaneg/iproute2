@@ -404,6 +404,7 @@ static int on_netns_exec(char *nsname, void *arg)
 	return 0;
 }
 
+//处理命令行 ip netns exec
 static int netns_exec(int argc, char **argv)
 {
 	/* Setup the proper environment for apps that are not netns
@@ -423,6 +424,7 @@ static int netns_exec(int argc, char **argv)
 	if (do_all)
 		return do_each_netns(on_netns_exec, --argv, 1);
 
+	//切换到对应的namespace
 	if (netns_switch(argv[0]))
 		return -1;
 
@@ -435,6 +437,7 @@ static int netns_exec(int argc, char **argv)
 	 * but do_cmd() will add a minus to this,
 	 * so let's add another one here to cancel it.
 	 */
+	//在切换后的环境中执行对应的命令
 	cmd = argv[1];
 	return -cmd_exec(cmd, argv + 1, !!batch_mode);
 }
@@ -619,6 +622,7 @@ static int netns_delete(int argc, char **argv)
 	return on_netns_del(argv[0], NULL);
 }
 
+//创建netns dir目录
 static int create_netns_dir(void)
 {
 	/* Create the base netns directory if it doesn't exist */
@@ -633,6 +637,7 @@ static int create_netns_dir(void)
 	return 0;
 }
 
+//ip netns add 命令处理
 static int netns_add(int argc, char **argv, bool create)
 {
 	/* This function creates a new network namespace and
@@ -653,6 +658,7 @@ static int netns_add(int argc, char **argv, bool create)
 	int made_netns_run_dir_mount = 0;
 
 	if (create) {
+		//执行netns创建
 		if (argc < 1) {
 			fprintf(stderr, "No netns name specified\n");
 			return -1;
@@ -668,10 +674,14 @@ static int netns_add(int argc, char **argv, bool create)
 			return -1;
 		}
 	}
+
+	//指明要创建的netns
 	name = argv[0];
 
+	//构造netns_path: /var/run/netns/$name
 	snprintf(netns_path, sizeof(netns_path), "%s/%s", NETNS_RUN_DIR, name);
 
+	//创建netns目录 '/var/run/netns/'
 	if (create_netns_dir())
 		return -1;
 
@@ -681,6 +691,7 @@ static int netns_add(int argc, char **argv, bool create)
 	 * file in all namespaces allowing the network namespace to be freed
 	 * sooner.
 	 */
+	//执行 '/var/run/netns/'目录挂载
 	while (mount("", NETNS_RUN_DIR, "none", MS_SHARED | MS_REC, NULL)) {
 		/* Fail unless we need to make the mount point */
 		if (errno != EINVAL || made_netns_run_dir_mount) {
@@ -699,6 +710,7 @@ static int netns_add(int argc, char **argv, bool create)
 	}
 
 	/* Create the filesystem state */
+	//打开指定文件
 	fd = open(netns_path, O_RDONLY|O_CREAT|O_EXCL, 0);
 	if (fd < 0) {
 		fprintf(stderr, "Cannot create namespace file \"%s\": %s\n",
@@ -846,6 +858,7 @@ static int invalid_name(const char *name)
 		strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..");
 }
 
+//处理ip netns命令
 int do_netns(int argc, char **argv)
 {
 	netns_nsid_socket_init();
@@ -874,6 +887,7 @@ int do_netns(int argc, char **argv)
 	if (matches(*argv, "help") == 0)
 		return usage();
 
+	//增加新的netns
 	if (matches(*argv, "add") == 0)
 		return netns_add(argc-1, argv+1, true);
 

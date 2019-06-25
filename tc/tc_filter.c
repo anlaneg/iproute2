@@ -634,6 +634,7 @@ static int tc_filter_list(int cmd, int argc, char **argv)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
+			//指定针对哪个dev执行查询
 			NEXT_ARG();
 			if (d[0])
 				duparg("dev", *argv);
@@ -785,6 +786,7 @@ int do_filter(int argc, char **argv, void *buf, size_t buflen)
 					buf, buflen);
 	if (matches(*argv, "get") == 0)
 		return tc_filter_get(RTM_GETTFILTER, 0,  argc-1, argv+1);
+	//显示为tc下发的filter
 	if (matches(*argv, "list") == 0 || matches(*argv, "show") == 0
 	    || matches(*argv, "lst") == 0)
 		return tc_filter_list(RTM_GETTFILTER, argc-1, argv+1);
