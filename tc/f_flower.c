@@ -514,31 +514,47 @@ static int flower_port_range_attr_type(__u8 ip_proto, enum flower_endpoint type,
 	return 0;
 }
 
+/* parse range args in format 10-20 */
+static int parse_range(char *str, __be16 *min, __be16 *max)
+{
+	char *sep;
+
+	//解析port范围
+	sep = strchr(str, '-');
+	if (sep) {
+		//解析到两个，执行min,max校验
+		*sep = '\0';
+
+		if (get_be16(min, str, 10))
+			return -1;
+
+		if (get_be16(max, sep + 1, 10))
+			return -1;
+	} else {
+		//只解析到一个数据
+		if (get_be16(min, str, 10))
+			return -1;
+	}
+	return 0;
+}
+
 //解析并填充port信息（支持port range格式）
 static int flower_parse_port(char *str, __u8 ip_proto,
 			     enum flower_endpoint endpoint,
 			     struct nlmsghdr *n)
 {
-	__u16 min, max;
+	__be16 min = 0;
+	__be16 max = 0;
 	int ret;
 
-	//解析port范围
-	ret = sscanf(str, "%hu-%hu", &min, &max);
+	ret = parse_range(str, &min, &max);
+	if (ret)
+		return -1;
 
-	if (ret == 1) {
-		//只解析到一个数据
-		int type;
-
-		//获取对应的type
-		type = flower_port_attr_type(ip_proto, endpoint);
-		if (type < 0)
-			return -1;
-		//填加port到netlink消息
-		addattr16(n, MAX_MSG, type, htons(min));
-	} else if (ret == 2) {
-		//解析到两个，执行min,max校验
+	if (min && max) {
 		__be16 min_port_type, max_port_type;
 
+		//解析到两个，执行min,max校验
 		if (max <= min) {
 			fprintf(stderr, "max value should be greater than min value\n");
 			return -1;
@@ -549,8 +565,15 @@ static int flower_parse_port(char *str, __u8 ip_proto,
 			return -1;
 
 		//存入port
-		addattr16(n, MAX_MSG, min_port_type, htons(min));
-		addattr16(n, MAX_MSG, max_port_type, htons(max));
+		addattr16(n, MAX_MSG, min_port_type, min);
+		addattr16(n, MAX_MSG, max_port_type, max);
+	} else if (min && !max) {
+		int type;
+
+		type = flower_port_attr_type(ip_proto, endpoint);
+		if (type < 0)
+			return -1;
+		addattr16(n, MAX_MSG, type, min);
 	} else {
 		return -1;
 	}

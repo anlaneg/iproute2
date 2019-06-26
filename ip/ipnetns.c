@@ -44,6 +44,7 @@ static int usage(void)
 static struct rtnl_handle rtnsh = { .fd = -1 };
 
 static int have_rtnl_getnsid = -1;
+static int saved_netns = -1;
 
 static int ipnetns_accept_msg(struct rtnl_ctrl_data *ctrl,
 			      struct nlmsghdr *n, void *arg)
@@ -107,7 +108,7 @@ int get_netnsid_from_name(const char *name)
 	struct nlmsghdr *answer;
 	struct rtattr *tb[NETNSA_MAX + 1];
 	struct rtgenmsg *rthdr;
-	int len, fd;
+	int len, fd, ret = -1;
 
 	netns_nsid_socket_init();
 
@@ -124,23 +125,22 @@ int get_netnsid_from_name(const char *name)
 
 	/* Validate message and parse attributes */
 	if (answer->nlmsg_type == NLMSG_ERROR)
-		goto err_out;
+		goto out;
 
 	rthdr = NLMSG_DATA(answer);
 	len = answer->nlmsg_len - NLMSG_SPACE(sizeof(*rthdr));
 	if (len < 0)
-		goto err_out;
+		goto out;
 
 	parse_rtattr(tb, NETNSA_MAX, NETNS_RTA(rthdr), len);
 
 	if (tb[NETNSA_NSID]) {
-		free(answer);
-		return rta_getattr_u32(tb[NETNSA_NSID]);
+		ret = rta_getattr_u32(tb[NETNSA_NSID]);
 	}
 
-err_out:
+out:
 	free(answer);
-	return -1;
+	return ret;
 }
 
 struct nsid_cache {
@@ -396,11 +396,24 @@ static int netns_list(int argc, char **argv)
 	return 0;
 }
 
+static int do_switch(void *arg)
+{
+	char *netns = arg;
+
+	/* we just changed namespaces. clear any vrf association
+	 * with prior namespace before exec'ing command
+	 */
+	vrf_reset();
+
+	return netns_switch(netns);
+}
+
 static int on_netns_exec(char *nsname, void *arg)
 {
 	char **argv = arg;
 
-	cmd_exec(argv[1], argv + 1, true);
+	printf("\nnetns: %s\n", nsname);
+	cmd_exec(argv[0], argv, true, do_switch, nsname);
 	return 0;
 }
 
@@ -410,8 +423,6 @@ static int netns_exec(int argc, char **argv)
 	/* Setup the proper environment for apps that are not netns
 	 * aware, and execute a program in that environment.
 	 */
-	const char *cmd;
-
 	if (argc < 1 && !do_all) {
 		fprintf(stderr, "No netns name specified\n");
 		return -1;
@@ -422,24 +433,14 @@ static int netns_exec(int argc, char **argv)
 	}
 
 	if (do_all)
-		return do_each_netns(on_netns_exec, --argv, 1);
-
-	//切换到对应的namespace
-	if (netns_switch(argv[0]))
-		return -1;
-
-	/* we just changed namespaces. clear any vrf association
-	 * with prior namespace before exec'ing command
-	 */
-	vrf_reset();
+		return netns_foreach(on_netns_exec, argv);
 
 	/* ip must return the status of the child,
 	 * but do_cmd() will add a minus to this,
 	 * so let's add another one here to cancel it.
 	 */
 	//在切换后的环境中执行对应的命令
-	cmd = argv[1];
-	return -cmd_exec(cmd, argv + 1, !!batch_mode);
+	return -cmd_exec(argv[1], argv + 1, !!batch_mode, do_switch, argv[0]);
 }
 
 static int is_pid(const char *str)
@@ -637,6 +638,33 @@ static int create_netns_dir(void)
 	return 0;
 }
 
+/* Obtain a FD for the current namespace, so we can reenter it later */
+static void netns_save(void)
+{
+	if (saved_netns != -1)
+		return;
+
+	saved_netns = open("/proc/self/ns/net", O_RDONLY | O_CLOEXEC);
+	if (saved_netns == -1) {
+		perror("Cannot open init namespace");
+		exit(1);
+	}
+}
+
+static void netns_restore(void)
+{
+	if (saved_netns == -1)
+		return;
+
+	if (setns(saved_netns, CLONE_NEWNET)) {
+		perror("setns");
+		exit(1);
+	}
+
+	close(saved_netns);
+	saved_netns = -1;
+}
+
 //ip netns add 命令处理
 static int netns_add(int argc, char **argv, bool create)
 {
@@ -720,6 +748,7 @@ static int netns_add(int argc, char **argv, bool create)
 	close(fd);
 
 	if (create) {
+		netns_save();
 		if (unshare(CLONE_NEWNET) < 0) {
 			fprintf(stderr, "Failed to create a new network namespace \"%s\": %s\n",
 				name, strerror(errno));
@@ -737,9 +766,12 @@ static int netns_add(int argc, char **argv, bool create)
 			proc_path, netns_path, strerror(errno));
 		goto out_delete;
 	}
+	netns_restore();
+
 	return 0;
 out_delete:
 	if (create) {
+		netns_restore();
 		netns_delete(argc, argv);
 	} else if (unlink(netns_path) < 0) {
 		fprintf(stderr, "Cannot remove namespace file \"%s\": %s\n",

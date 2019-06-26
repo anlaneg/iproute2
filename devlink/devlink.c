@@ -1523,7 +1523,7 @@ static void __pr_out_handle_start(struct dl *dl, struct nlattr **tb,
 {
 	const char *bus_name = mnl_attr_get_str(tb[DEVLINK_ATTR_BUS_NAME]);
 	const char *dev_name = mnl_attr_get_str(tb[DEVLINK_ATTR_DEV_NAME]);
-	char buf[32];
+	char buf[64];
 
 	sprintf(buf, "%s/%s", bus_name, dev_name);
 
@@ -1616,7 +1616,7 @@ static void __pr_out_port_handle_start(struct dl *dl, const char *bus_name,
 				       uint32_t port_index, bool try_nice,
 				       bool array)
 {
-	static char buf[32];
+	static char buf[64];
 	char *ifname = NULL;
 
 	if (dl->no_nice_names || !try_nice ||
@@ -3422,7 +3422,7 @@ static void pr_out_occ_show_item_list(const char *label, struct list_head *list,
 				  occ_item->bound_pool_index);
 		else
 			pr_out_sp(7, "%2u:", occ_item->index);
-		pr_out_sp(15, "%7u/%u", occ_item->cur, occ_item->max);
+		pr_out_sp(21, "%10u/%u", occ_item->cur, occ_item->max);
 		if (i++ % 4 == 0)
 			pr_out("\n");
 	}
@@ -3858,12 +3858,8 @@ static int cmd_mon(struct dl *dl)
 	if (dl_argv_match(dl, "help")) {
 		cmd_mon_help();
 		return 0;
-	} else if (dl_no_arg(dl)) {
-		dl_arg_inc(dl);
-		return cmd_mon_show(dl);
 	}
-	pr_err("Command \"%s\" not found\n", dl_argv(dl));
-	return -ENOENT;
+	return cmd_mon_show(dl);
 }
 
 struct dpipe_field {
