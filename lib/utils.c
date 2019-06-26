@@ -177,14 +177,16 @@ int mask2bits(__u32 netmask)
 	return bits;
 }
 
-static int get_netmask(unsigned int *val, const char *arg, int base)
+static int get_netmask(unsigned int *val/*出参，掩码长度*/, const char *arg/*掩码形式*/, int base)
 {
 	inet_prefix addr;
 
+	//如果arg为掩码长度形式，例如1.1.1.1/24,这里直接将val转发24,直接返回
 	if (!get_unsigned(val, arg, base))
 		return 0;
 
 	/* try coverting dotted quad to CIDR */
+	//尝试1.1.1.1/255.255.1.0这种形式,换算成掩码长度形式，返回
 	if (!get_addr_1(&addr, arg, AF_INET) && addr.family == AF_INET) {
 		int b = mask2bits(addr.data[0]);
 
@@ -197,6 +199,7 @@ static int get_netmask(unsigned int *val, const char *arg, int base)
 	return -1;
 }
 
+//将arg转换为unsigned类型的val
 int get_unsigned(unsigned int *val, const char *arg, int base)
 {
 	unsigned long res;
@@ -334,6 +337,7 @@ int get_u32(__u32 *val, const char *arg, int base)
 		return -1;
 
 	/* in case UL > 32 bits */
+	//给出的数字必须小于等于32位整数最大值
 	if (res > 0xFFFFFFFFUL)
 		return -1;
 
@@ -365,6 +369,7 @@ int get_u16(__u16 *val, const char *arg, int base)
 	return 0;
 }
 
+//按base解析arg字符串，将结果保存在u8类型的val中
 int get_u8(__u8 *val, const char *arg, int base)
 {
 	unsigned long res;
@@ -534,6 +539,7 @@ static void set_address_type(inet_prefix *addr)
 {
 	switch (addr->family) {
 	case AF_INET:
+		//inet支持的几种flags
 		if (!addr->data[0])
 			addr->flags |= ADDRTYPE_INET_UNSPEC;
 		else if (IN_MULTICAST(ntohl(addr->data[0])))
@@ -591,6 +597,7 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 	}
 
 	if (strchr(name, ':')) {
+		//ipv6地址转换
 		addr->family = AF_INET6;
 		if (family != AF_UNSPEC && family != AF_INET6)
 			return -1;
@@ -622,6 +629,7 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 		return 0;
 	}
 
+	//ipv4地址转换
 	addr->family = AF_INET;
 	if (family != AF_UNSPEC && family != AF_INET)
 		return -1;
@@ -638,14 +646,17 @@ int get_addr_1(inet_prefix *addr, const char *name, int family)
 {
 	int ret;
 
+	//将name转换为相应协议族的地址
 	ret = __get_addr_1(addr, name, family);
 	if (ret)
 		return ret;
 
+	//设置addr flags
 	set_address_type(addr);
 	return 0;
 }
 
+//各协议族地址bits长度
 int af_bit_len(int af)
 {
 	switch (af) {
@@ -664,22 +675,26 @@ int af_bit_len(int af)
 	return 0;
 }
 
+//各协议族地址长度
 static int af_byte_len(int af)
 {
 	return af_bit_len(af) / 8;
 }
 
-int get_prefix_1(inet_prefix *dst, char *arg, int family)
+int get_prefix_1(inet_prefix *dst, char *arg/*待转换地址*/, int family/*协议族*/)
 {
 	char *slash;
 	int err, bitlen, flags;
 
+	//查找掩码分隔符'1.1.1.1/24',如果有，则将字符串分隔成两部分
 	slash = strchr(arg, '/');
 	if (slash)
 		*slash = 0;
 
+	//转换地址
 	err = get_addr_1(dst, arg, family);
 
+	//还原掩码分隔符
 	if (slash)
 		*slash = '/';
 
@@ -692,16 +707,20 @@ int get_prefix_1(inet_prefix *dst, char *arg, int family)
 	if (slash) {
 		unsigned int plen;
 
+		//不支持掩码形式，直接返-1
 		if (dst->bitlen == -2)
 			return -1;
+		//执行掩码转换
 		if (get_netmask(&plen, slash + 1, 0))
 			return -1;
+		//掩码长度如大于地址长度，则出错
 		if (plen > bitlen)
 			return -1;
 
 		flags |= PREFIXLEN_SPECIFIED;
 		bitlen = plen;
 	} else {
+		//如果未指定掩码，除不支持掩码的掩码长度为0外，其它均认为为全掩码形式
 		if (dst->bitlen == -2)
 			bitlen = 0;
 	}
@@ -779,6 +798,7 @@ int get_prefix(inet_prefix *dst, char *arg, int family)
 		exit(1);
 	}
 
+	//转换前缀地址
 	if (get_prefix_1(dst, arg, family)) {
 		fprintf(stderr,
 			"Error: %s prefix is expected rather than \"%s\".\n",

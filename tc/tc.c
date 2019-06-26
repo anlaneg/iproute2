@@ -455,6 +455,7 @@ int main(int argc, char **argv)
 	int ret;
 	char *batch_file = NULL;
 
+	//处理tc选项，以'-'开头
 	while (argc > 1) {
 		if (argv[1][0] != '-')
 			break;
@@ -537,6 +538,7 @@ int main(int argc, char **argv)
 		goto Exit;
 	}
 
+	//tc 命令行入口
 	ret = do_cmd(argc-1, argv+1, NULL, 0);
 Exit:
 	rtnl_close(&rth);

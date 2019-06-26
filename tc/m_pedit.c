@@ -75,6 +75,7 @@ static int pedit_parse_nopopt(int *argc_p, char ***argv_p,
 
 }
 
+//获取指定字段的pedit解析辅助结构
 static struct m_pedit_util *get_pedit_kind(const char *str)
 {
 	static void *pBODY;
@@ -82,6 +83,7 @@ static struct m_pedit_util *get_pedit_kind(const char *str)
 	char buf[256];
 	struct m_pedit_util *p;
 
+	//首先在缓存注册链上查找
 	for (p = pedit_list; p; p = p->next) {
 		if (strcmp(p->id, str) == 0)
 			return p;
@@ -98,12 +100,14 @@ static struct m_pedit_util *get_pedit_kind(const char *str)
 		}
 	}
 
+	//取对应字段的packet edit函数
 	snprintf(buf, sizeof(buf), "p_pedit_%s", str);
 	p = dlsym(dlh, buf);
 	if (p == NULL)
 		goto noexist;
 
 reg:
+	//完成缓存注册
 	p->next = pedit_list;
 	pedit_list = p;
 	return p;
@@ -132,6 +136,7 @@ static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 		return -1;
 	}
 
+	//将tkey存入到sel中
 	sel->keys[hwm].val = tkey->val;
 	sel->keys[hwm].mask = tkey->mask;
 	sel->keys[hwm].off = tkey->off;
@@ -151,6 +156,7 @@ static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 		}
 	}
 
+	//增加key指针
 	sel->nkeys++;
 	return 0;
 }
@@ -158,13 +164,16 @@ static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 static int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
+	//offset必须是4字节对齐
 	if (tkey->off > (tkey->off & ~3)) {
 		fprintf(stderr,
 			"pack_key32: 32 bit offsets must begin in 32bit boundaries\n");
 		return -1;
 	}
 
+	//val与 retain执行与操作
 	tkey->val = htonl(tkey->val & retain);
+	//mask 与retain执行 或操作
 	tkey->mask = htonl(tkey->mask | ~retain);
 	return pack_key(sel, tkey);
 }
@@ -283,7 +292,7 @@ static int pack_ipv6(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return 0;
 }
 
-static int parse_val(int *argc_p, char ***argv_p, __u32 *val, int type)
+static int parse_val(int *argc_p, char ***argv_p, __u32 *val/*出参，解析结果*/, int type)
 {
 	int argc = *argc_p;
 	char **argv = *argv_p;
@@ -298,6 +307,7 @@ static int parse_val(int *argc_p, char ***argv_p, __u32 *val, int type)
 		return get_u32(val, *argv, 0);
 
 	if (type == TIPV4) {
+		//ipv4地址解析
 		inet_prefix addr;
 
 		if (get_prefix_1(&addr, *argv, AF_INET))
@@ -329,8 +339,8 @@ static int parse_val(int *argc_p, char ***argv_p, __u32 *val, int type)
 	return -1;
 }
 
-int parse_cmd(int *argc_p, char ***argv_p, __u32 len, int type, __u32 retain,
-	      struct m_pedit_sel *sel, struct m_pedit_key *tkey)
+int parse_cmd(int *argc_p, char ***argv_p, __u32 len/*字段长度*/, int type, __u32 retain,
+	      struct m_pedit_sel *sel/*tkey中解析的数据将存入sel*/, struct m_pedit_key *tkey/*解析具体命令对应的tkey*/)
 {
 	__u32 mask[4] = { 0 };
 	__u32 val[4] = { 0 };
@@ -357,6 +367,7 @@ int parse_cmd(int *argc_p, char ***argv_p, __u32 len, int type, __u32 retain,
 		*v = *m = o;
 	} else if (matches(*argv, "set") == 0 ||
 		   matches(*argv, "add") == 0) {
+		//解析要设置的值
 		if (matches(*argv, "add") == 0)
 			tkey->cmd = TCA_PEDIT_KEY_EX_CMD_ADD;
 
@@ -406,6 +417,7 @@ int parse_cmd(int *argc_p, char ***argv_p, __u32 len, int type, __u32 retain,
 	tkey->val = *v;
 	tkey->mask = *m;
 
+	//填充进网络序的ipv4地址
 	if (type == TIPV4)
 		tkey->val = ntohl(tkey->val);
 
@@ -509,7 +521,8 @@ done:
 	return res;
 }
 
-static int parse_munge(int *argc_p, char ***argv_p, struct m_pedit_sel *sel)
+//解析pedit munge对应的命令行，例如"pedit ex munge ip src set 2.0.0.2 pass"
+static int parse_munge(int *argc_p, char ***argv_p, struct m_pedit_sel *sel/*出参，填充好的sel*/)
 {
 	struct m_pedit_key tkey = {};
 	int argc = *argc_p;
@@ -527,13 +540,16 @@ static int parse_munge(int *argc_p, char ***argv_p, struct m_pedit_sel *sel)
 		char k[FILTER_NAMESZ];
 		struct m_pedit_util *p = NULL;
 
+		//指定kind,例如"ip"
 		strncpy(k, *argv, sizeof(k) - 1);
 
 		if (argc > 0) {
+			//取kind对应的解析结构，并使其解析后面的参数
 			p = get_pedit_kind(k);
 			if (p == NULL)
 				goto bad_val;
 			NEXT_ARG();
+			//tkey是解析成功的数据，但其将被存入到sel中
 			res = p->parse_peopt(&argc, &argv, sel, &tkey);
 			if (res < 0) {
 				fprintf(stderr, "bad pedit parsing\n");
@@ -612,6 +628,7 @@ static int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 	return 0;
 }
 
+//pedit action命令行解析
 static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 		       int tca_id, struct nlmsghdr *n)
 {
@@ -626,6 +643,7 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 		if (pedit_debug > 1)
 			fprintf(stderr, "while pedit (%d:%s)\n", argc, *argv);
 		if (matches(*argv, "pedit") == 0) {
+			//消耗pedit命令字
 			NEXT_ARG();
 			ok++;
 
@@ -636,6 +654,7 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 					explain();
 					return -1;
 				}
+				//遇着'ex'，认为扩展模式
 				sel.extended = true;
 				NEXT_ARG();
 			}
@@ -645,6 +664,7 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 			usage();
 		} else if (matches(*argv, "munge") == 0) {
 			if (!ok) {
+				//报错，并说明用法
 				fprintf(stderr, "Bad pedit construct (%s)\n",
 					*argv);
 				explain();
@@ -652,6 +672,7 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 			}
 			NEXT_ARG();
 
+			//解析出sel
 			if (parse_munge(&argc, &argv, &sel)) {
 				fprintf(stderr, "Bad pedit construct (%s)\n",
 					*argv);
@@ -670,6 +691,7 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 		return -1;
 	}
 
+	//继续解析control字段
 	parse_action_control_dflt(&argc, &argv, &sel.sel.action, false, TC_ACT_OK);
 
 	if (argc) {
@@ -685,7 +707,8 @@ static int parse_pedit(struct action_util *a, int *argc_p, char ***argv_p,
 		}
 	}
 
-	tail = addattr_nest(n, MAX_MSG, tca_id);
+	//将sel内容存入netlink消息
+	tail = addattr_nest(n, MAX_MSG, tca_id/*存入对应的action id*/);
 	if (!sel.extended) {
 		addattr_l(n, MAX_MSG, TCA_PEDIT_PARMS, &sel,
 			  sizeof(sel.sel) +
@@ -826,6 +849,7 @@ static int print_pedit(struct action_util *au, FILE *f, struct rtattr *arg)
 	return 0;
 }
 
+//pedit对应的action处理结构
 struct action_util pedit_action_util = {
 	.id = "pedit",
 	.parse_aopt = parse_pedit,

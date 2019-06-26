@@ -92,6 +92,10 @@ ok:
 	return 0;
 }
 
+//通过str 解析maj,min
+//目前支持 "root" => {maj = TC_H_ROOT,min=0,h=TC_H_ROOT}
+//        "none" => {maj = TC_H_UNSPEC,min=0 ,h=TC_H_UNSPEC}
+//        "XXXX:AAAA" => {maj = XXXX,min="AAAA",h=XXXXAAAA}
 int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
@@ -103,7 +107,7 @@ int get_tc_classid(__u32 *h, const char *str)
 	maj = TC_H_UNSPEC;
 	if (strcmp(str, "none") == 0)
 		goto ok;
-	//将	16进制的字符串转换为p
+	//将	16进制的字符串转换为p (例如FFFF:)
 	maj = strtoul(str, &p, 16);
 	if (p == str) {
 		maj = 0;
@@ -112,6 +116,7 @@ int get_tc_classid(__u32 *h, const char *str)
 	}
 	//遇到':',认为:前为major
 	if (*p == ':') {
+		//maj必须小于等于0XFFFF
 		if (maj >= (1<<16))
 			return -1;
 		maj <<= 16;
@@ -499,15 +504,17 @@ int action_a2n(char *arg, int *result, bool allow_num)
 	for (iter = a2n; iter->a; iter++) {
 		if (matches(arg, iter->a) != 0)
 			continue;
-		n = iter->n;
+		n = iter->n;/*命中其中的一个action,取其对应的type*/
 		goto out_ok;
 	}
+
+	//未命中，尝试%d%c格式进行解析
 	if (!allow_num || sscanf(arg, "%d%c", &n, &dummy) != 1)
 		return -1;
 
 out_ok:
 	if (result)
-		*result = n;
+		*result = n;/*action对应的type*/
 	return 0;
 }
 
@@ -520,11 +527,14 @@ static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p,
 
 	if (!argc)
 		return -1;
+	//匹配控制字段
 	if (action_a2n(*argv, &result, allow_num) == -1) {
 		if (!ignore_a2n_miss)
 			fprintf(stderr, "Bad action type %s\n", *argv);
 		return -1;
 	}
+
+	//需要执行chain跳转，在result中或上chain_index
 	if (result == TC_ACT_GOTO_CHAIN) {
 		__u32 chain_index;
 
@@ -541,6 +551,8 @@ static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p,
 		}
 		result |= chain_index;
 	}
+
+	//需要执行jump
 	if (result == TC_ACT_JUMP) {
 		__u32 jump_cnt = 0;
 
@@ -555,6 +567,7 @@ static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p,
 	NEXT_ARG_FWD();
 	*argc_p = argc;
 	*argv_p = argv;
+	//存入获得的action
 	*result_p = result;
 	return 0;
 }

@@ -152,7 +152,8 @@ new_cmd(char **argv)
 		(matches(*argv, "add") == 0);
 }
 
-int parse_action(int *argc_p, char ***argv_p, int tca_id, struct nlmsghdr *n)
+//执行action解析
+int parse_action(int *argc_p, char ***argv_p, int tca_id/*action type*/, struct nlmsghdr *n)
 {
 	int argc = *argc_p;
 	char **argv = *argv_p;
@@ -176,6 +177,7 @@ int parse_action(int *argc_p, char ***argv_p, int tca_id, struct nlmsghdr *n)
 		memset(k, 0, sizeof(k));
 
 		if (strcmp(*argv, "action") == 0) {
+			//消耗action命令
 			argc--;
 			argv++;
 			eap = 1;
@@ -194,15 +196,18 @@ int parse_action(int *argc_p, char ***argv_p, int tca_id, struct nlmsghdr *n)
 			//argv为操作符情况
 			goto done0;
 		} else {
+			//action名称解析
 			struct action_util *a = NULL;
 
 			if (!action_a2n(*argv, NULL, false))
-				//可以由gact_action_util处理的action
+				//已知的action,可以由gact_action_util处理的action
 				strncpy(k, "gact", sizeof(k) - 1);
 			else
+				//非gact可处理的action,记录其名称
 				strncpy(k, *argv, sizeof(k) - 1);
 			eap = 0;
 			if (argc > 0) {
+				//获取action名称对应的action_util
 				a = get_action_kind(k);
 			} else {
 done0:
@@ -218,8 +223,10 @@ done0:
 
 
 			tail = addattr_nest(n, MAX_MSG, ++prio);
+			//存入action kind
 			addattr_l(n, MAX_MSG, TCA_ACT_KIND, k, strlen(k) + 1);
 
+			//交由此action解析下面的命令行
 			ret = a->parse_aopt(a, &argc, &argv, TCA_ACT_OPTIONS,
 					    n);
 

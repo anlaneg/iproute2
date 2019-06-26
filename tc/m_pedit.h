@@ -42,6 +42,7 @@
 struct m_pedit_key {
 	__u32           mask;  /* AND */
 	__u32           val;   /*XOR */
+	//字段的在key中的偏移量
 	__u32           off;  /*offset */
 	__u32           at;
 	__u32           offmask;

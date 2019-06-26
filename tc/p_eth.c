@@ -67,6 +67,7 @@ done:
 	return res;
 }
 
+//以太头修改帮助函数
 struct m_pedit_util p_pedit_eth = {
 	.id = "eth",
 	.parse_peopt = parse_eth,

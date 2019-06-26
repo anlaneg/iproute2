@@ -555,12 +555,12 @@ struct tcmsg {
 	unsigned short	tcm__pad2;
 	int		tcm_ifindex/*接口ifindex*/;
 	__u32		tcm_handle;
-	__u32		tcm_parent;
+	__u32		tcm_parent;//记录parent参数(block_index)，例如：parent FFFF:AAAA
 /* tcm_block_index is used instead of tcm_parent
  * in case tcm_ifindex == TCM_IFINDEX_MAGIC_BLOCK
  */
 #define tcm_block_index tcm_parent
-	__u32		tcm_info;
+	__u32		tcm_info;/*高16位存priory,后16位存protocol*/
 };
 
 /* For manipulation of filters in shared block, tcm_ifindex is set to
@@ -581,7 +581,7 @@ enum {
 	TCA_STAB,
 	TCA_PAD,
 	TCA_DUMP_INVISIBLE,
-	TCA_CHAIN,
+	TCA_CHAIN,/*填充chain对应的index*/
 	TCA_HW_OFFLOAD,
 	TCA_INGRESS_BLOCK,
 	TCA_EGRESS_BLOCK,

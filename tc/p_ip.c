@@ -22,9 +22,10 @@
 #include "tc_util.h"
 #include "m_pedit.h"
 
+//解析pedit mungle ip后面的命令行
 static int
 parse_ip(int *argc_p, char ***argv_p,
-	 struct m_pedit_sel *sel, struct m_pedit_key *tkey)
+	 struct m_pedit_sel *sel, struct m_pedit_key *tkey/*出参，解析到的key*/)
 {
 	int res = -1;
 	int argc = *argc_p;
@@ -38,12 +39,14 @@ parse_ip(int *argc_p, char ***argv_p,
 		TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK;
 
 	if (strcmp(*argv, "src") == 0) {
+		//解析src ip地址
 		NEXT_ARG();
 		tkey->off = 12;
 		res = parse_cmd(&argc, &argv, 4, TIPV4, RU32, sel, tkey);
 		goto done;
 	}
 	if (strcmp(*argv, "dst") == 0) {
+		//解析dst ip地址
 		NEXT_ARG();
 		tkey->off = 16;
 		res = parse_cmd(&argc, &argv, 4, TIPV4, RU32, sel, tkey);
@@ -155,7 +158,8 @@ done:
 	return res;
 }
 
+//ip报文字段修改辅助函数
 struct m_pedit_util p_pedit_ip = {
 	.id = "ip",
-	.parse_peopt = parse_ip,
+	.parse_peopt = parse_ip,//解析ip后面的参数
 };

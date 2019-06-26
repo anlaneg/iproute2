@@ -219,15 +219,18 @@ static int flower_parse_matching_flags(char *str,
 	return 0;
 }
 
-static int flower_parse_ip_proto(char *str, __be16 eth_type, int type,
+//将str解析为ip,ipv6协议的protocol的协议字段
+static int flower_parse_ip_proto(char *str, __be16 eth_type/*帧类型*/, int type,
 				 __u8 *p_ip_proto, struct nlmsghdr *n)
 {
 	int ret;
 	__u8 ip_proto;
 
+	//当前仅支持ip,ipv6
 	if (eth_type != htons(ETH_P_IP) && eth_type != htons(ETH_P_IPV6))
 		goto err;
 
+	//按协议名称映射协议编号
 	if (matches(str, "tcp") == 0) {
 		ip_proto = IPPROTO_TCP;
 	} else if (matches(str, "udp") == 0) {
@@ -243,10 +246,12 @@ static int flower_parse_ip_proto(char *str, __be16 eth_type, int type,
 			goto err;
 		ip_proto = IPPROTO_ICMPV6;
 	} else {
+		//采用数字指明的protocol
 		ret = get_u8(&ip_proto, str, 16);
 		if (ret)
 			return -1;
 	}
+	//存入type及其对应的value(ip_proto)
 	addattr8(n, MAX_MSG, type, ip_proto);
 	*p_ip_proto = ip_proto;
 	return 0;
@@ -256,6 +261,7 @@ err:
 	return -1;
 }
 
+//解析ip地址，并填充address,netmask到netlink消息
 static int __flower_parse_ip_addr(char *str, int family,
 				  int addr4_type, int mask4_type,
 				  int addr6_type, int mask6_type,
@@ -266,18 +272,22 @@ static int __flower_parse_ip_addr(char *str, int family,
 	int bits;
 	int i;
 
+	//解析前缀
 	ret = get_prefix(&addr, str, family);
 	if (ret)
 		return -1;
 
+	//协议族不相等，返回-1
 	if (family && (addr.family != family)) {
 		fprintf(stderr, "Illegal \"eth_type\" for ip address\n");
 		return -1;
 	}
 
+	//填充address
 	addattr_l(n, MAX_MSG, addr.family == AF_INET ? addr4_type : addr6_type,
 		  addr.data, addr.bytelen);
 
+	//构造掩码（设置bitlen外的bit为0）
 	memset(addr.data, 0xff, addr.bytelen);
 	bits = addr.bitlen;
 	for (i = 0; i < addr.bytelen / 4; i++) {
@@ -292,19 +302,22 @@ static int __flower_parse_ip_addr(char *str, int family,
 		}
 	}
 
+	//填充address的掩码
 	addattr_l(n, MAX_MSG, addr.family == AF_INET ? mask4_type : mask6_type,
 		  addr.data, addr.bytelen);
 
 	return 0;
 }
 
+//解析并填充ip地址及其掩码
 static int flower_parse_ip_addr(char *str, __be16 eth_type,
-				int addr4_type, int mask4_type,
-				int addr6_type, int mask6_type,
+				int addr4_type/*如str为ipv4地址，则v4地址类型*/, int mask4_type/*如str为ipv4地址，则v4地址mask类型*/,
+				int addr6_type/*如str为ipv6地址，则v6地址类型*/, int mask6_type/*如str为ipv6地址，则v6地址mask类型*/,
 				struct nlmsghdr *n)
 {
 	int family;
 
+	//确定协议族
 	if (eth_type == htons(ETH_P_IP)) {
 		family = AF_INET;
 	} else if (eth_type == htons(ETH_P_IPV6)) {
@@ -315,6 +328,7 @@ static int flower_parse_ip_addr(char *str, __be16 eth_type,
 		return -1;
 	}
 
+	//解析并填充ip地址及其掩码
 	return __flower_parse_ip_addr(str, family, addr4_type, mask4_type,
 				      addr6_type, mask6_type, n);
 }
@@ -463,6 +477,7 @@ static int flower_parse_icmp(char *str, __u16 eth_type, __u8 ip_proto,
 
 static int flower_port_attr_type(__u8 ip_proto, enum flower_endpoint endpoint)
 {
+	//决定采用的port attribute type
 	if (ip_proto == IPPROTO_TCP)
 		return endpoint == FLOWER_ENDPOINT_SRC ?
 			TCA_FLOWER_KEY_TCP_SRC :
@@ -479,6 +494,7 @@ static int flower_port_attr_type(__u8 ip_proto, enum flower_endpoint endpoint)
 		return -1;
 }
 
+//port range情况下，定义相应的min,max type
 static int flower_port_range_attr_type(__u8 ip_proto, enum flower_endpoint type,
 				       __be16 *min_port_type,
 				       __be16 *max_port_type)
@@ -498,6 +514,7 @@ static int flower_port_range_attr_type(__u8 ip_proto, enum flower_endpoint type,
 	return 0;
 }
 
+//解析并填充port信息（支持port range格式）
 static int flower_parse_port(char *str, __u8 ip_proto,
 			     enum flower_endpoint endpoint,
 			     struct nlmsghdr *n)
@@ -505,26 +522,33 @@ static int flower_parse_port(char *str, __u8 ip_proto,
 	__u16 min, max;
 	int ret;
 
+	//解析port范围
 	ret = sscanf(str, "%hu-%hu", &min, &max);
 
 	if (ret == 1) {
+		//只解析到一个数据
 		int type;
 
+		//获取对应的type
 		type = flower_port_attr_type(ip_proto, endpoint);
 		if (type < 0)
 			return -1;
+		//填加port到netlink消息
 		addattr16(n, MAX_MSG, type, htons(min));
 	} else if (ret == 2) {
+		//解析到两个，执行min,max校验
 		__be16 min_port_type, max_port_type;
 
 		if (max <= min) {
 			fprintf(stderr, "max value should be greater than min value\n");
 			return -1;
 		}
+		//获取对应的type
 		if (flower_port_range_attr_type(ip_proto, endpoint,
 						&min_port_type, &max_port_type))
 			return -1;
 
+		//存入port
 		addattr16(n, MAX_MSG, min_port_type, htons(min));
 		addattr16(n, MAX_MSG, max_port_type, htons(max));
 	} else {
@@ -553,6 +577,7 @@ static int flower_parse_tcp_flags(char *str, int flags_type, int mask_type,
 	addattr16(n, MAX_MSG, flags_type, htons(flags));
 
 	if (slash) {
+		//支持tcp_flags的掩码形式
 		ret = get_u16(&flags, slash + 1, 16);
 		if (ret < 0 || flags & ~TCP_FLAGS_MAX_MASK)
 			goto err;
@@ -808,15 +833,17 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 	int ret;
 	struct tcmsg *t = NLMSG_DATA(n);
 	struct rtattr *tail;
+	//filter对应的protocol type
 	__be16 eth_type = TC_H_MIN(t->tcm_info);
 	__be16 vlan_ethtype = 0;
 	__be16 cvlan_ethtype = 0;
 	__u8 ip_proto = 0xff;
-	__u32 flags = 0;
+	__u32 flags = 0;/*规则flag*/
 	__u32 mtf = 0;
 	__u32 mtf_mask = 0;
 
 	if (handle) {
+		//如果配置了handle,将handle转换为u32整数
 		ret = get_u32(&t->tcm_handle, handle, 0);
 		if (ret) {
 			fprintf(stderr, "Illegal \"handle\"\n");
@@ -825,6 +852,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 	}
 
 	tail = (struct rtattr *) (((void *) n) + NLMSG_ALIGN(n->nlmsg_len));
+	//添加options,暂不支持其实际大小及数据
 	addattr_l(n, MAX_MSG, TCA_OPTIONS, NULL, 0);
 
 	if (argc == 0) {
@@ -876,8 +904,10 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 		} else if (matches(*argv, "verbose") == 0) {
 			flags |= TCA_CLS_FLAGS_VERBOSE;
 		} else if (matches(*argv, "skip_hw") == 0) {
+			//指明skip hardware
 			flags |= TCA_CLS_FLAGS_SKIP_HW;
 		} else if (matches(*argv, "skip_sw") == 0) {
+			//指明skip software
 			flags |= TCA_CLS_FLAGS_SKIP_SW;
 		} else if (matches(*argv, "indev") == 0) {
 			NEXT_ARG();
@@ -1042,6 +1072,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				return -1;
 			}
 		} else if (matches(*argv, "ip_proto") == 0) {
+			//定义ip的上层协议类型，例如tcp,udp等
 			NEXT_ARG();
 			ret = flower_parse_ip_proto(*argv, cvlan_ethtype ?
 						    cvlan_ethtype : vlan_ethtype ?
@@ -1074,6 +1105,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "dst_ip") == 0) {
 			NEXT_ARG();
+			//解析目的ip及其mask
 			ret = flower_parse_ip_addr(*argv, cvlan_ethtype ?
 						   cvlan_ethtype : vlan_ethtype ?
 						   vlan_ethtype : eth_type,
@@ -1111,7 +1143,8 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "src_port") == 0) {
 			NEXT_ARG();
-			ret = flower_parse_port(*argv, ip_proto,
+			//解析填充src_port,支持range形式
+			ret = flower_parse_port(*argv, ip_proto/*上层协义*/,
 						FLOWER_ENDPOINT_SRC, n);
 			if (ret < 0) {
 				fprintf(stderr, "Illegal \"src_port\"\n");
@@ -1119,6 +1152,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "tcp_flags") == 0) {
 			NEXT_ARG();
+			//解析并填充tcp_flags
 			ret = flower_parse_tcp_flags(*argv,
 						     TCA_FLOWER_KEY_TCP_FLAGS,
 						     TCA_FLOWER_KEY_TCP_FLAGS_MASK,
@@ -1265,7 +1299,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			}
 		} else if (matches(*argv, "action") == 0) {
 			NEXT_ARG();
-			//action参数解析
+			//执行action参数解析
 			ret = parse_action(&argc, &argv, TCA_FLOWER_ACT, n);
 			if (ret) {
 				fprintf(stderr, "Illegal \"action\"\n");

@@ -70,7 +70,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 	int protocol_set = 0;
 	__u32 block_index = 0;
 	char *fhandle = NULL;
-	__u32 protocol = 0;
+	__u32 protocol = 0;/*filter使用的协议，例如ip*/
 	__u32 chain_index;
 	struct iovec iov;
 	__u32 prio = 0;
@@ -253,7 +253,8 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv,
 
 	iov.iov_base = &req->n;
 	iov.iov_len = req->n.nlmsg_len;
-	//netlink通信
+
+	//已完成netlink消息填充，向kernel执行netlink通信
 	ret = rtnl_talk_iov(&rth, &iov, 1, NULL);
 	if (ret < 0) {
 		fprintf(stderr, "We have an error talking to the kernel, %d\n", ret);

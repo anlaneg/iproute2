@@ -1185,11 +1185,13 @@ int addattr(struct nlmsghdr *n, int maxlen, int type)
 	return addattr_l(n, maxlen, type, NULL, 0);
 }
 
+//存入type类型的消息段，其值为data,负载长度为sizeof(__u8)
 int addattr8(struct nlmsghdr *n, int maxlen, int type, __u8 data)
 {
 	return addattr_l(n, maxlen, type, &data, sizeof(__u8));
 }
 
+//存放type类型的消息段
 int addattr16(struct nlmsghdr *n, int maxlen, int type, __u16 data)
 {
 	return addattr_l(n, maxlen, type, &data, sizeof(__u16));
@@ -1210,23 +1212,27 @@ int addattrstrz(struct nlmsghdr *n, int maxlen, int type, const char *str)
 	return addattr_l(n, maxlen, type, str, strlen(str)+1);
 }
 
-int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
-	      int alen)
+int addattr_l(struct nlmsghdr *n, int maxlen/*消息最大长度*/, int type/*消息段类型*/, const void *data/*负载*/,
+	      int alen/*实际负载长度*/)
 {
 	int len = RTA_LENGTH(alen);
 	struct rtattr *rta;
 
+	//检查消息是否无法存放
 	if (NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len) > maxlen) {
 		fprintf(stderr,
 			"addattr_l ERROR: message exceeded bound of %d\n",
 			maxlen);
 		return -1;
 	}
+	//存入type,len,data
 	rta = NLMSG_TAIL(n);
 	rta->rta_type = type;
 	rta->rta_len = len;
 	if (alen)
+		//如果给定了负载长度，则copy
 		memcpy(RTA_DATA(rta), data, alen);
+	//更新n的消息长度
 	n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len);
 	return 0;
 }

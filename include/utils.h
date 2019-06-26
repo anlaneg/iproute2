@@ -57,15 +57,16 @@ void incomplete_command(void) __attribute__((noreturn));
 
 typedef struct
 {
-	__u16 flags;
-	__u16 bytelen;
-	__s16 bitlen;
+	__u16 flags;//地址标记（例如全0地址，组播地址，。。。）
+	__u16 bytelen;//地址长度
+	__s16 bitlen;//掩码长度
 	/* These next two fields match rtvia */
 	__u16 family;
-	__u32 data[64];
+	__u32 data[64];//网络地址
 } inet_prefix;
 
 enum {
+	//固定掩码形式
 	PREFIXLEN_SPECIFIED	= (1 << 0),
 	ADDRTYPE_INET		= (1 << 1),
 	ADDRTYPE_UNSPEC		= (1 << 2),
