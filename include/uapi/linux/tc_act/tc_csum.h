@@ -15,6 +15,7 @@ enum {
 #define TCA_CSUM_MAX (__TCA_CSUM_MAX - 1)
 
 enum {
+	//标记需要更新对应层面的checksum
 	TCA_CSUM_UPDATE_FLAG_IPV4HDR = 1,
 	TCA_CSUM_UPDATE_FLAG_ICMP    = 2,
 	TCA_CSUM_UPDATE_FLAG_IGMP    = 4,
