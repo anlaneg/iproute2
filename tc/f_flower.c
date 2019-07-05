@@ -933,6 +933,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			//指明skip software
 			flags |= TCA_CLS_FLAGS_SKIP_SW;
 		} else if (matches(*argv, "indev") == 0) {
+			//指明indev,采用哪个入接口设备
 			NEXT_ARG();
 			if (check_ifname(*argv))
 				invarg("\"indev\" not a valid ifname", *argv);
@@ -2002,6 +2003,7 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		if (flags & TCA_CLS_FLAGS_SKIP_SW)
 			print_bool(PRINT_ANY, "skip_sw", "\n  skip_sw", true);
 
+		//如果在hw中，则输出"in_hw"
 		if (flags & TCA_CLS_FLAGS_IN_HW) {
 			print_bool(PRINT_ANY, "in_hw", "\n  in_hw", true);
 

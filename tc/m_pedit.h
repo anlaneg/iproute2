@@ -40,19 +40,29 @@
 #define PEDITKINDSIZ 16
 
 struct m_pedit_key {
+	//掩码
 	__u32           mask;  /* AND */
+	//目标值
 	__u32           val;   /*XOR */
 	//字段的在key中的偏移量
 	__u32           off;  /*offset */
+	/**
+	 * 支持at子句
+	 * at AT offmask MASK shift SHIFT
+		This is an optional part of RAW_OP which allows to have a variable OFFSET
+		depending on packet data at offset AT, which is binary ANDed with MASK and
+		right-shifted by SHIFT before adding it to OFFSET.
+	 */
 	__u32           at;
 	__u32           offmask;
 	__u32           shift;
 
-	enum pedit_header_type htype;
-	enum pedit_cmd cmd;
+	enum pedit_header_type htype;//字段所在的header类型
+	enum pedit_cmd cmd;//修改方式,add/modify
 };
 
 struct m_pedit_key_ex {
+	//修改的头部类型
 	enum pedit_header_type htype;
 	enum pedit_cmd cmd;
 };

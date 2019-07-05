@@ -286,6 +286,7 @@ bad_val:
 	return -1;
 }
 
+//显示具体的一个action
 static int tc_print_one_action(FILE *f, struct rtattr *arg)
 {
 
@@ -379,11 +380,13 @@ tc_print_action(FILE *f, const struct rtattr *arg, unsigned short tot_acts)
 	if (tab_flush && tb[0] && !tb[1])
 		return tc_print_action_flush(f, tb[0]);
 
+	//action输出
 	open_json_array(PRINT_JSON, "actions");
 	for (i = 0; i <= tot_acts; i++) {
 		if (tb[i]) {
 			open_json_object(NULL);
 			print_string(PRINT_FP, NULL, "%s", _SL_);
+			//显示action order
 			print_uint(PRINT_ANY, "order",
 				   "\taction order %u: ", i);
 			if (tc_print_one_action(f, tb[i]) < 0) {

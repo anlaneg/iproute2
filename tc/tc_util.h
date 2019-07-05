@@ -59,6 +59,7 @@ struct action_util {
 	char id[FILTER_NAMESZ];
 	int (*parse_aopt)(struct action_util *a, int *argc,
 			  char ***argv, int code, struct nlmsghdr *n);
+	//由opt转换为f输出
 	int (*print_aopt)(struct action_util *au, FILE *f, struct rtattr *opt);
 	int (*print_xstats)(struct action_util *au,
 			    FILE *f, struct rtattr *xstats);

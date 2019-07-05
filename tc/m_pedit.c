@@ -292,7 +292,7 @@ static int pack_ipv6(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return 0;
 }
 
-static int parse_val(int *argc_p, char ***argv_p, __u32 *val/*出参，解析结果*/, int type)
+static int parse_val(int *argc_p, char ***argv_p, __u32 *val/*出参，解析结果*/, int type/*待解析字段类型*/)
 {
 	int argc = *argc_p;
 	char **argv = *argv_p;
@@ -300,6 +300,7 @@ static int parse_val(int *argc_p, char ***argv_p, __u32 *val/*出参，解析结
 	if (argc <= 0)
 		return -1;
 
+	//解析为整数
 	if (type == TINT)
 		return get_integer((int *)val, *argv, 0);
 
@@ -339,7 +340,7 @@ static int parse_val(int *argc_p, char ***argv_p, __u32 *val/*出参，解析结
 	return -1;
 }
 
-int parse_cmd(int *argc_p, char ***argv_p, __u32 len/*字段长度*/, int type, __u32 retain,
+int parse_cmd(int *argc_p, char ***argv_p, __u32 len/*待解析字段长度*/, int type/*待解析字段类型*/, __u32 retain,
 	      struct m_pedit_sel *sel/*tkey中解析的数据将存入sel*/, struct m_pedit_key *tkey/*解析具体命令对应的tkey*/)
 {
 	__u32 mask[4] = { 0 };
@@ -367,9 +368,9 @@ int parse_cmd(int *argc_p, char ***argv_p, __u32 len/*字段长度*/, int type, 
 		*v = *m = o;
 	} else if (matches(*argv, "set") == 0 ||
 		   matches(*argv, "add") == 0) {
-		//解析要设置的值
+		//解析要设置的值(默认是set)
 		if (matches(*argv, "add") == 0)
-			tkey->cmd = TCA_PEDIT_KEY_EX_CMD_ADD;
+			tkey->cmd = TCA_PEDIT_KEY_EX_CMD_ADD;//明确为add
 
 		if (!sel->extended && tkey->cmd) {
 			fprintf(stderr,
