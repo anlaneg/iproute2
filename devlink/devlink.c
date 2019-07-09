@@ -2064,6 +2064,7 @@ static int cmd_dev_eswitch_set(struct dl *dl)
 	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
 }
 
+//devlink  dev eswitch [set|show|help"]
 static int cmd_dev_eswitch(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help") || dl_no_arg(dl)) {
