@@ -53,6 +53,8 @@ static void usage(void)
 	fprintf(stderr, "OPTIONS := ... try tc class add <desired QDISC_KIND> help\n");
 }
 
+//class的创建及更新
+//例如：tc class add dev eth0 parent 1: classid 1:1 htb rate 40mbit ceil 40mbit
 static int tc_class_modify(int cmd, unsigned int flags, int argc, char **argv)
 {
 	struct {
@@ -72,11 +74,13 @@ static int tc_class_modify(int cmd, unsigned int flags, int argc, char **argv)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
+			//class关联哪个dev
 			NEXT_ARG();
 			if (d[0])
 				duparg("dev", *argv);
 			strncpy(d, *argv, sizeof(d)-1);
 		} else if (strcmp(*argv, "classid") == 0) {
+			//关联的class id
 			__u32 handle;
 
 			NEXT_ARG();
@@ -86,6 +90,7 @@ static int tc_class_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("invalid class ID", *argv);
 			req.t.tcm_handle = handle;
 		} else if (strcmp(*argv, "handle") == 0) {
+			//不支持handle关键字了
 			fprintf(stderr, "Error: try \"classid\" instead of \"handle\"\n");
 			return -1;
 		} else if (strcmp(*argv, "root") == 0) {
@@ -95,6 +100,7 @@ static int tc_class_modify(int cmd, unsigned int flags, int argc, char **argv)
 			}
 			req.t.tcm_parent = TC_H_ROOT;
 		} else if (strcmp(*argv, "parent") == 0) {
+			//将class关联给哪个父队列
 			__u32 handle;
 
 			NEXT_ARG();
@@ -466,6 +472,7 @@ int do_class(int argc, char **argv)
 	if (argc < 1)
 		return tc_class_list(0, NULL);
 	if (matches(*argv, "add") == 0)
+		//实现class的修改添加
 		return tc_class_modify(RTM_NEWTCLASS, NLM_F_EXCL|NLM_F_CREATE, argc-1, argv+1);
 	if (matches(*argv, "change") == 0)
 		return tc_class_modify(RTM_NEWTCLASS, 0, argc-1, argv+1);

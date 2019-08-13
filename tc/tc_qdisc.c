@@ -79,10 +79,12 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			if (req.t.tcm_handle)
 				duparg("handle", *argv);
 			NEXT_ARG();
+			//解析handle，指定qdisc的id号
 			if (get_qdisc_handle(&handle, *argv))
 				invarg("invalid qdisc ID", *argv);
 			req.t.tcm_handle = handle;
 		} else if (strcmp(*argv, "root") == 0) {
+			//指定本队列的父队列为root
 			if (req.t.tcm_parent) {
 				fprintf(stderr, "Error: \"root\" is duplicate parent ID\n");
 				return -1;
@@ -113,6 +115,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG_FWD();
 			break;
 		} else if (strcmp(*argv, "parent") == 0) {
+			//指定父队列为handle
 			__u32 handle;
 
 			NEXT_ARG();
@@ -139,6 +142,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 		} else if (matches(*argv, "help") == 0) {
 			usage();
 		} else {
+			//设置kind,查找qdisc类型
 			strncpy(k, *argv, sizeof(k)-1);
 
 			q = get_qdisc_kind(k);
@@ -162,6 +166,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 
 	if (q) {
 		if (q->parse_qopt) {
+			//解析指定qdisc对应的选项
 			if (q->parse_qopt(q, argc, argv, &req.n, d))
 				return 1;
 		} else if (argc) {
@@ -418,12 +423,13 @@ static int tc_qdisc_list(int argc, char **argv)
 	return 0;
 }
 
-//处理 "tc qdisc" 开头的命令
+//处理 "tc qdisc" 开头的命令(创建或者更新队列）
 int do_qdisc(int argc, char **argv)
 {
 	if (argc < 1)
 		return tc_qdisc_list(0, NULL);
 	if (matches(*argv, "add") == 0)
+		//qdisc队列添加，容许创建，容许已存在
 		return tc_qdisc_modify(RTM_NEWQDISC, NLM_F_EXCL|NLM_F_CREATE, argc-1, argv+1);
 	if (matches(*argv, "change") == 0)
 		return tc_qdisc_modify(RTM_NEWQDISC, 0, argc-1, argv+1);

@@ -367,6 +367,7 @@ static int htb_print_xstats(struct qdisc_util *qu, FILE *f, struct rtattr *xstat
 	return 0;
 }
 
+//htb对应的qdisc解析
 struct qdisc_util htb_qdisc_util = {
 	.id		= "htb",
 	.parse_qopt	= htb_parse_opt,

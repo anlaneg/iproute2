@@ -30,6 +30,7 @@ enum
 struct qdisc_util {
 	struct  qdisc_util *next;
 	const char *id;
+	//解析qdisc参数
 	int (*parse_qopt)(struct qdisc_util *qu, int argc,
 			  char **argv, struct nlmsghdr *n, const char *dev);
 	int (*print_qopt)(struct qdisc_util *qu,

@@ -112,6 +112,7 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 	char buf[256];
 	struct qdisc_util *q;
 
+	//优先查找注册的qdisc
 	for (q = qdisc_list; q; q = q->next)
 		if (strcmp(q->id, str) == 0)
 			return q;
@@ -122,18 +123,21 @@ struct qdisc_util *get_qdisc_kind(const char *str)
 		/* look in current binary, only open once */
 		dlh = BODY;
 		if (dlh == NULL) {
+			//打开当前二进制作为动态库句柄
 			dlh = BODY = dlopen(NULL, RTLD_LAZY);
 			if (dlh == NULL)
 				goto noexist;
 		}
 	}
 
+	//尝试获取%s_qdisc_util数据结构，获取对应qdisc对应的命令行解析器
 	snprintf(buf, sizeof(buf), "%s_qdisc_util", str);
 	q = dlsym(dlh, buf);
 	if (q == NULL)
 		goto noexist;
 
 reg:
+	//加载成功后执行注册
 	q->next = qdisc_list;
 	qdisc_list = q;
 	return q;
@@ -141,6 +145,7 @@ reg:
 noexist:
 	q = calloc(1, sizeof(*q));
 	if (q) {
+		//提供未知的qdisc
 		q->id = strdup(str);
 		q->parse_qopt = parse_noqopt;
 		q->print_qopt = print_noqopt;
@@ -207,12 +212,16 @@ static void usage(void)
 static int do_cmd(int argc, char **argv, void *buf, size_t buflen)
 {
 	if (matches(*argv, "qdisc") == 0)
+		//队列相关操作
 		//例如 tc qdisc add dev enp4s0f0 ingress
 		return do_qdisc(argc-1, argv+1);
 	if (matches(*argv, "class") == 0)
+		//类别相关操作
+		//例如 tc class add dev eth0 parent 1: classid 1:1 htb rate 40mbit ceil 40mbit
 		return do_class(argc-1, argv+1);
 	if (matches(*argv, "filter") == 0)
-		//做filter相关的操作
+		//过滤器相关操作,用于区分class
+		//例如 tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dport 80 0xffff flowid 1:11
 		return do_filter(argc-1, argv+1, buf, buflen);
 	if (matches(*argv, "chain") == 0)
 		return do_chain(argc-1, argv+1, buf, buflen);
