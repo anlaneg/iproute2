@@ -1634,6 +1634,7 @@ static void do_help(int argc, char **argv)
 		usage();
 }
 
+//ip link命令处理
 int do_iplink(int argc, char **argv)
 {
 	if (argc < 1)

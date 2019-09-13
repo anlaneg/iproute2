@@ -353,13 +353,16 @@ int print_filter(struct nlmsghdr *n, void *arg)
 		}
 		if (!filter_prio || filter_prio != prio) {
 			if (prio)
+				//显示优先级
 				print_uint(PRINT_ANY, "pref", "pref %u ", prio);
 		}
 	}
 	if (tb[TCA_KIND])
+		//输出kind值，例如flower
 		print_string(PRINT_ANY, "kind", "%s ", rta_getattr_str(tb[TCA_KIND]));
 
 	if (tb[TCA_CHAIN]) {
+		//显示chain编号
 		__u32 chain_index = rta_getattr_u32(tb[TCA_CHAIN]);
 
 		if (!filter_chain_index_set ||

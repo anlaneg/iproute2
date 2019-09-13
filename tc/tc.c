@@ -155,7 +155,7 @@ noexist:
 	return q;
 }
 
-
+//按名称获取filter
 struct filter_util *get_filter_kind(const char *str)
 {
 	void *dlh;

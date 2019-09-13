@@ -1418,6 +1418,7 @@ static void flower_print_eth_addr(char *name, struct rtattr *addr_attr,
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 
+//显示以太类型
 static void flower_print_eth_type(__be16 *p_eth_type,
 				  struct rtattr *eth_type_attr)
 {
@@ -1443,6 +1444,7 @@ static void flower_print_eth_type(__be16 *p_eth_type,
 	*p_eth_type = eth_type;
 }
 
+//显示ip层协议号
 static void flower_print_ip_proto(__u8 *p_ip_proto,
 				  struct rtattr *ip_proto_attr)
 {
@@ -1885,8 +1887,10 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 			     buf, sizeof(buf)));
 	}
 
+	//显示目的mac
 	flower_print_eth_addr("dst_mac", tb[TCA_FLOWER_KEY_ETH_DST],
 			      tb[TCA_FLOWER_KEY_ETH_DST_MASK]);
+	//显示源mac
 	flower_print_eth_addr("src_mac", tb[TCA_FLOWER_KEY_ETH_SRC],
 			      tb[TCA_FLOWER_KEY_ETH_SRC_MASK]);
 
@@ -1903,12 +1907,14 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	flower_print_u8("mpls_bos", tb[TCA_FLOWER_KEY_MPLS_BOS]);
 	flower_print_u8("mpls_ttl", tb[TCA_FLOWER_KEY_MPLS_TTL]);
 
+	//显示目的ip
 	flower_print_ip_addr("dst_ip", eth_type,
 			     tb[TCA_FLOWER_KEY_IPV4_DST],
 			     tb[TCA_FLOWER_KEY_IPV4_DST_MASK],
 			     tb[TCA_FLOWER_KEY_IPV6_DST],
 			     tb[TCA_FLOWER_KEY_IPV6_DST_MASK]);
 
+	//显示源ip
 	flower_print_ip_addr("src_ip", eth_type,
 			     tb[TCA_FLOWER_KEY_IPV4_SRC],
 			     tb[TCA_FLOWER_KEY_IPV4_SRC_MASK],
@@ -1932,6 +1938,7 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		flower_print_port_range("src_port",
 					tb[min_port_type], tb[max_port_type]);
 
+	//显示tcp flags
 	flower_print_tcp_flags("tcp_flags", tb[TCA_FLOWER_KEY_TCP_FLAGS],
 			       tb[TCA_FLOWER_KEY_TCP_FLAGS_MASK]);
 

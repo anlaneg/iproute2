@@ -127,6 +127,7 @@ _PRINT_FUNC(lluint, unsigned long long);
 _PRINT_FUNC(float, double);
 #undef _PRINT_FUNC
 
+//字符串显示
 void print_color_string(enum output_type type,
 			enum color_attr color,
 			const char *key,
@@ -141,6 +142,7 @@ void print_color_string(enum output_type type,
 		else
 			jsonw_string_field(_jw, key, value);
 	} else if (_IS_FP_CONTEXT(type)) {
+		//格式化后输出到stdout
 		color_fprintf(stdout, color, fmt, value);
 	}
 }

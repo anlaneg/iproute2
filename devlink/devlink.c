@@ -274,8 +274,8 @@ struct dl_opts {
 struct dl {
 	struct mnlg_socket *nlg;
 	struct list_head ifname_map_list;
-	int argc;
-	char **argv;
+	int argc;//待解析参数数目
+	char **argv;//待解析参数
 	bool no_nice_names;
 	struct dl_opts opts;
 	json_writer_t *jw;
@@ -2036,6 +2036,7 @@ static int cmd_dev_eswitch_show(struct dl *dl)
 	return err;
 }
 
+//设置eswitch配置
 static int cmd_dev_eswitch_set(struct dl *dl)
 {
 	struct nlmsghdr *nlh;
@@ -2067,6 +2068,7 @@ static int cmd_dev_eswitch(struct dl *dl)
 		cmd_dev_help();
 		return 0;
 	} else if (dl_argv_match(dl, "set")) {
+		//devlink dev eswitch set 命令处理
 		dl_arg_inc(dl);
 		return cmd_dev_eswitch_set(dl);
 	} else if (dl_argv_match(dl, "show")) {
@@ -2744,6 +2746,7 @@ static int cmd_dev(struct dl *dl)
 		dl_arg_inc(dl);
 		return cmd_dev_show(dl);
 	} else if (dl_argv_match(dl, "eswitch")) {
+		//devlink dev eswitch相关命令
 		dl_arg_inc(dl);
 		return cmd_dev_eswitch(dl);
 	} else if (dl_argv_match(dl, "reload")) {
@@ -3891,6 +3894,8 @@ static int cmd_mon_show(struct dl *dl)
 			return -EINVAL;
 		}
 	}
+
+	//加入到相应的组
 	err = _mnlg_socket_group_add(dl->nlg, DEVLINK_GENL_MCGRP_CONFIG_NAME);
 	if (err)
 		return err;
@@ -3909,6 +3914,7 @@ static void cmd_mon_help(void)
 static int cmd_mon(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help")) {
+		//显示monitor的帮助信息
 		cmd_mon_help();
 		return 0;
 	}
@@ -6348,6 +6354,7 @@ static int dl_cmd(struct dl *dl, int argc, char **argv)
 		help();
 		return 0;
 	} else if (dl_argv_match(dl, "dev")) {
+		//devlink dev eswitch.... 命令格式
 		dl_arg_inc(dl);
 		return cmd_dev(dl);
 	} else if (dl_argv_match(dl, "port")) {
@@ -6500,6 +6507,7 @@ int main(int argc, char **argv)
 
 		switch (opt) {
 		case 'V':
+			//版本显示
 			printf("devlink utility, iproute2-ss%s\n", SNAPSHOT);
 			ret = EXIT_SUCCESS;
 			goto dl_free;
@@ -6541,6 +6549,7 @@ int main(int argc, char **argv)
 	if (batch_file)
 		err = dl_batch(dl, batch_file, force);
 	else
+		//命令行处理
 		err = dl_cmd(dl, argc, argv);
 
 	if (err) {

@@ -189,7 +189,7 @@ void rtnl_close(struct rtnl_handle *rth)
 }
 
 int rtnl_open_byproto(struct rtnl_handle *rth, unsigned int subscriptions,
-		      int protocol)
+		      int protocol/*netlink对应的protocol*/)
 {
 	socklen_t addr_len;
 	int sndbuf = 32768;
@@ -198,18 +198,21 @@ int rtnl_open_byproto(struct rtnl_handle *rth, unsigned int subscriptions,
 	memset(rth, 0, sizeof(*rth));
 
 	rth->proto = protocol;
+	//创建netlink对应的socket
 	rth->fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, protocol);
 	if (rth->fd < 0) {
 		perror("Cannot open netlink socket");
 		return -1;
 	}
 
+	//设置send buffer大小
 	if (setsockopt(rth->fd, SOL_SOCKET, SO_SNDBUF,
 		       &sndbuf, sizeof(sndbuf)) < 0) {
 		perror("SO_SNDBUF");
 		return -1;
 	}
 
+	//设置recv buffer大小
 	if (setsockopt(rth->fd, SOL_SOCKET, SO_RCVBUF,
 		       &rcvbuf, sizeof(rcvbuf)) < 0) {
 		perror("SO_RCVBUF");
@@ -250,6 +253,7 @@ int rtnl_open_byproto(struct rtnl_handle *rth, unsigned int subscriptions,
 
 int rtnl_open(struct rtnl_handle *rth, unsigned int subscriptions)
 {
+	//创建netlink的NETLINK_ROUTE
 	return rtnl_open_byproto(rth, subscriptions, NETLINK_ROUTE);
 }
 

@@ -96,6 +96,9 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 				idx++;
 			}
 		} else if (strcmp(*argv, "hw") == 0) {
+			//是否offload到硬件
+			//Set to 1 to support hardware offload.
+			//Set to 0 to configure user specified values in software only.
 			NEXT_ARG();
 			if (get_u8(&opt.hw, *argv, 10)) {
 				fprintf(stderr, "Illegal \"hw\"\n");

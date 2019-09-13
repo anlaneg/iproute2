@@ -143,10 +143,12 @@ int color_fprintf(FILE *fp, enum color_attr attr, const char *fmt, ...)
 	va_start(args, fmt);
 
 	if (!color_is_enabled || attr == COLOR_NONE) {
+		//直接输出
 		ret = vfprintf(fp, fmt, args);
 		goto end;
 	}
 
+	//加彩色输出
 	ret += fprintf(fp, "%s", color_codes[is_dark_bg ?
 		attr_colors_dark[attr] : attr_colors_light[attr]]);
 

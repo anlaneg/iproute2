@@ -51,7 +51,7 @@ void print_nl(void);
 				     type value);			\
 									\
 	static inline void print_##type_name(enum output_type t,	\
-					     const char *key,		\
+					     const char *key,/*键值*/		\
 					     const char *fmt,		\
 					     type value)		\
 	{								\

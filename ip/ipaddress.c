@@ -2125,6 +2125,7 @@ void ipaddr_get_vf_rate(int vfnum, int *min, int *max, const char *dev)
 	}
 }
 
+//显示所有link
 int ipaddr_list_link(int argc, char **argv)
 {
 	preferred_family = AF_PACKET;

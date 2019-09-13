@@ -314,6 +314,7 @@ static int tc_print_one_action(FILE *f, struct rtattr *arg)
 	if (err < 0)
 		return err;
 
+	//显示action统计信息
 	if (show_stats && tb[TCA_ACT_STATS]) {
 		print_string(PRINT_FP, NULL, "\tAction statistics:", NULL);
 		print_string(PRINT_FP, NULL, "%s", _SL_);
