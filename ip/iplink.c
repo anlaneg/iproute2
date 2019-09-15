@@ -144,6 +144,7 @@ static int on_off(const char *msg, const char *realval)
 static void *BODY;		/* cached dlopen(NULL) handle */
 static struct link_util *linkutil_list;
 
+//通过kind获取link_util
 struct link_util *get_link_kind(const char *id)
 {
 	void *dlh;
@@ -1627,6 +1628,7 @@ static void do_help(int argc, char **argv)
 		return;
 	}
 
+	//显示link对应的帮助信息
 	lu = get_link_kind(*argv);
 	if (lu && lu->print_help)
 		lu->print_help(lu, argc-1, argv+1, stdout);

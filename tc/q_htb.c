@@ -76,6 +76,7 @@ static int htb_parse_opt(struct qdisc_util *qu, int argc,
 				explain1("r2q"); return -1;
 			}
 		} else if (matches(*argv, "default") == 0) {
+			//指定未被分类的流量对应的分类号，16进制
 			NEXT_ARG();
 			if (get_u32(&opt.defcls, *argv, 16)) {
 				explain1("default"); return -1;

@@ -110,12 +110,15 @@ struct link_util {
 	struct link_util	*next;
 	const char		*id;
 	int			maxattr;
+	//link_util参数解析,并填充nlmsghdr
 	int			(*parse_opt)(struct link_util *, int, char **,
 					     struct nlmsghdr *);
+	//link_util将rtattr格式化输出到FILE
 	void			(*print_opt)(struct link_util *, FILE *,
 					     struct rtattr *[]);
 	void			(*print_xstats)(struct link_util *, FILE *,
 						struct rtattr *);
+	//显示link的帮助信息
 	void			(*print_help)(struct link_util *, int, char **,
 					      FILE *);
 	int			(*parse_ifla_xstats)(struct link_util *,

@@ -73,6 +73,7 @@ const char *get_tc_lib(void)
 	return lib_dir;
 }
 
+//解析qdisc的handle(要求major非0，minor为0）
 int get_qdisc_handle(__u32 *h, const char *str)
 {
 	__u32 maj;
@@ -83,8 +84,10 @@ int get_qdisc_handle(__u32 *h, const char *str)
 		goto ok;
 	maj = strtoul(str, &p, 16);
 	if (p == str || maj >= (1 << 16))
+		/*major过大，或者major非数字，报错*/
 		return -1;
 	maj <<= 16;
+	/*minor必须为0*/
 	if (*p != ':' && *p != 0)
 		return -1;
 ok:

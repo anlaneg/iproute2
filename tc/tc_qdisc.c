@@ -44,6 +44,7 @@ static int usage(void)
 }
 
 //处理类型“tc qdisc add dev enp4s0f0 ingress”这样的命令行，增加修改qdisc
+//tc qdisc add dev eth0 root handle 1: htb default 11
 static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 {
 	struct qdisc_util *q = NULL;
@@ -80,12 +81,12 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			if (req.t.tcm_handle)
 				duparg("handle", *argv);
 			NEXT_ARG();
-			//解析handle，指定qdisc的id号
+			//解析handle，指定qdisc的id号，例如"1:"
 			if (get_qdisc_handle(&handle, *argv))
 				invarg("invalid qdisc ID", *argv);
 			req.t.tcm_handle = handle;
 		} else if (strcmp(*argv, "root") == 0) {
-			//指定本队列的父队列为root
+			//指定本队列为root队列
 			if (req.t.tcm_parent) {
 				fprintf(stderr, "Error: \"root\" is duplicate parent ID\n");
 				return -1;

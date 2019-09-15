@@ -230,6 +230,7 @@ int rtnl_listen(struct rtnl_handle *, rtnl_listen_filter_t handler,
 int rtnl_from_file(FILE *, rtnl_listen_filter_t handler,
 		   void *jarg);
 
+//定位到nlmsg消息尾部
 #define NLMSG_TAIL(nmsg) \
 	((struct rtattr *) (((void *) (nmsg)) + NLMSG_ALIGN((nmsg)->nlmsg_len)))
 

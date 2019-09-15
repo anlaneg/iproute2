@@ -562,7 +562,7 @@ struct tcmsg {
 	unsigned char	tcm__pad1;
 	unsigned short	tcm__pad2;
 	int		tcm_ifindex/*接口ifindex*/;
-	//handle字段
+	//handle字段,队列id号
 	__u32		tcm_handle;
 	__u32		tcm_parent;//记录parent参数(block_index)，例如：parent FFFF:AAAA
 /* tcm_block_index is used instead of tcm_parent

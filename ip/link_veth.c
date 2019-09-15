@@ -28,6 +28,7 @@ static void usage(void)
 	print_usage(stderr);
 }
 
+//veth参数解析，并填充lu
 static int veth_parse_opt(struct link_util *lu, int argc, char **argv,
 			  struct nlmsghdr *n)
 {
@@ -37,6 +38,7 @@ static int veth_parse_opt(struct link_util *lu, int argc, char **argv,
 	struct ifinfomsg *ifm, *peer_ifm;
 	unsigned int ifi_flags, ifi_change, ifi_index;
 
+	//首个字符串必须为peer
 	if (strcmp(argv[0], "peer") != 0) {
 		usage();
 		return -1;
