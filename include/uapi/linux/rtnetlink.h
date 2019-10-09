@@ -210,6 +210,7 @@ struct rtmsg {
 	unsigned char		rtm_src_len;
 	unsigned char		rtm_tos;
 
+	//需要操作的表
 	unsigned char		rtm_table;	/* Routing table id */
 	unsigned char		rtm_protocol;	/* Routing protocol; see below	*/
 	unsigned char		rtm_scope;	/* See below */	

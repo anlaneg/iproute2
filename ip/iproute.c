@@ -1070,9 +1070,9 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg)),
 		.n.nlmsg_flags = NLM_F_REQUEST | flags,
-		.n.nlmsg_type = cmd,
+		.n.nlmsg_type = cmd,/*路由请求类型*/
 		.r.rtm_family = preferred_family,
-		.r.rtm_table = RT_TABLE_MAIN,
+		.r.rtm_table = RT_TABLE_MAIN,/*默认加入到main表中*/
 		.r.rtm_scope = RT_SCOPE_NOWHERE,
 	};
 	char  mxbuf[256];
@@ -1129,6 +1129,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 			}
 			gw_ok = 1;
 			NEXT_ARG();
+			//解析下一跳地址
 			family = read_family(*argv);
 			if (family == AF_UNSPEC)
 				family = req.r.rtm_family;
@@ -1138,6 +1139,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 			if (req.r.rtm_family == AF_UNSPEC)
 				req.r.rtm_family = addr.family;
 			if (addr.family == req.r.rtm_family)
+				//添加网关地址
 				addattr_l(&req.n, sizeof(req), RTA_GATEWAY,
 					  &addr.data, addr.bytelen);
 			else
@@ -1151,6 +1153,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 			if (req.r.rtm_family == AF_UNSPEC)
 				req.r.rtm_family = addr.family;
 			if (addr.bytelen)
+				//添加源地址
 				addattr_l(&req.n, sizeof(req), RTA_SRC, &addr.data, addr.bytelen);
 			req.r.rtm_src_len = addr.bitlen;
 		} else if (strcmp(*argv, "tos") == 0 ||
@@ -1171,6 +1174,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 		} else if (matches(*argv, "metric") == 0 ||
 			   matches(*argv, "priority") == 0 ||
 			   strcmp(*argv, "preference") == 0) {
+			//解析路由的metric或者优先级
 			__u32 metric;
 
 			NEXT_ARG();
@@ -1371,6 +1375,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"id\" value is invalid\n", *argv);
 			addattr32(&req.n, sizeof(req), RTA_NH_ID, nhid);
 		} else if (matches(*argv, "protocol") == 0) {
+			//解析protocol字段，
 			__u32 prot;
 
 			NEXT_ARG();
@@ -1378,6 +1383,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"protocol\" value is invalid\n", *argv);
 			req.r.rtm_protocol = prot;
 		} else if (matches(*argv, "table") == 0) {
+			//解析要加入的表号
 			__u32 tid;
 
 			NEXT_ARG();
@@ -2275,12 +2281,14 @@ void iproute_reset_filter(int ifindex)
 		filter.oifmask = -1;
 }
 
+//ip route路由操作
 int do_iproute(int argc, char **argv)
 {
 	if (argc < 1)
 		return iproute_list_flush_or_save(0, NULL, IPROUTE_LIST);
 
 	if (matches(*argv, "add") == 0)
+		//路由添加
 		return iproute_modify(RTM_NEWROUTE, NLM_F_CREATE|NLM_F_EXCL,
 				      argc-1, argv+1);
 	if (matches(*argv, "change") == 0 || strcmp(*argv, "chg") == 0)

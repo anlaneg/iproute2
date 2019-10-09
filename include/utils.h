@@ -59,8 +59,8 @@ void incomplete_command(void) __attribute__((noreturn));
 typedef struct
 {
 	__u16 flags;//地址标记（例如全0地址，组播地址，。。。）
-	__u16 bytelen;//地址长度
-	__s16 bitlen;//掩码长度
+	__u16 bytelen;//地址字节长度
+	__s16 bitlen;//掩码位长度
 	/* These next two fields match rtvia */
 	__u16 family;
 	__u32 data[64];//网络地址

@@ -60,7 +60,7 @@ char *rtnl_rtntype_n2a(int id, char *buf, int len)
 	}
 }
 
-
+//路由类型
 int rtnl_rtntype_a2n(int *id, char *arg)
 {
 	char *end;
