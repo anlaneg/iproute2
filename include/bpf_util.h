@@ -60,17 +60,17 @@ struct bpf_cfg_ops {
 enum bpf_mode {
 	CBPF_BYTECODE,
 	CBPF_FILE,
-	EBPF_OBJECT,
+	EBPF_OBJECT,//object类型文件
 	EBPF_PINNED,
 	BPF_MODE_MAX,
 };
 
 struct bpf_cfg_in {
-	const char *object;
-	const char *section;
+	const char *object;/*要加载的文件名*/
+	const char *section;/*要提取的段名称*/
 	const char *uds;
-	enum bpf_prog_type type;
-	enum bpf_mode mode;
+	enum bpf_prog_type type;/*bpf程序类型*/
+	enum bpf_mode mode;/*bpf文件格式*/
 	__u32 ifindex;
 	bool verbose;
 	int argc;

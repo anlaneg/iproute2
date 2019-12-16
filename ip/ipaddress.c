@@ -2178,11 +2178,11 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 		char			buf[256];
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg)),
-		.n.nlmsg_flags = NLM_F_REQUEST | flags,
-		.n.nlmsg_type = cmd,
+		.n.nlmsg_flags = NLM_F_REQUEST/*请求报文*/ | flags,
+		.n.nlmsg_type = cmd/*子命令*/,
 		.ifa.ifa_family = preferred_family,
 	};
-	char  *d = NULL;
+	char  *d = NULL;/*记录设备名称*/
 	char  *l = NULL;
 	char  *lcl_arg = NULL;
 	char  *valid_lftp = NULL;
@@ -2205,12 +2205,13 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 
 			if (peer_len)
 				duparg("peer", *argv);
+			//解析对端的地址，并将其填充到IFA_ADDRESS中
 			get_prefix(&peer, *argv, req.ifa.ifa_family);
-			peer_len = peer.bytelen;
+			peer_len = peer.bytelen;/*对端地址长度*/
 			if (req.ifa.ifa_family == AF_UNSPEC)
 				req.ifa.ifa_family = peer.family;
 			addattr_l(&req.n, sizeof(req), IFA_ADDRESS, &peer.data, peer.bytelen);
-			req.ifa.ifa_prefixlen = peer.bitlen;
+			req.ifa.ifa_prefixlen = peer.bitlen;/*对端地址前缀长度*/
 		} else if (matches(*argv, "broadcast") == 0 ||
 			   strcmp(*argv, "brd") == 0) {
 			inet_prefix addr;
@@ -2223,6 +2224,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			else if (strcmp(*argv, "-") == 0)
 				brd_len = -2;
 			else {
+			    //解析广播地址，并将其填充到IFA_BROADCAST中
 				get_addr(&addr, *argv, req.ifa.ifa_family);
 				if (req.ifa.ifa_family == AF_UNSPEC)
 					req.ifa.ifa_family = addr.family;
@@ -2235,6 +2237,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			NEXT_ARG();
 			if (any_len)
 				duparg("anycast", *argv);
+			//解析anycast地址，并将其填充到IFA_ANYCAST中
 			get_addr(&addr, *argv, req.ifa.ifa_family);
 			if (req.ifa.ifa_family == AF_UNSPEC)
 				req.ifa.ifa_family = addr.family;
@@ -2249,6 +2252,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			req.ifa.ifa_scope = scope;
 			scoped = 1;
 		} else if (strcmp(*argv, "dev") == 0) {
+		    //指定设备名称
 			NEXT_ARG();
 			d = *argv;
 		} else if (strcmp(*argv, "label") == 0) {
@@ -2308,7 +2312,8 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			get_prefix(&lcl, *argv, req.ifa.ifa_family);
 			if (req.ifa.ifa_family == AF_UNSPEC)
 				req.ifa.ifa_family = lcl.family;
-			addattr_l(&req.n, sizeof(req), IFA_LOCAL, &lcl.data, lcl.bytelen);
+			//向netlink中添加解析好的地址
+			addattr_l(&req.n, sizeof(req), IFA_LOCAL/*存放解析好的地址*/, &lcl.data, lcl.bytelen);
 			local_len = lcl.bytelen;
 		}
 		argc--; argv++;
@@ -2318,6 +2323,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 	else
 		addattr32(&req.n, sizeof(req), IFA_FLAGS, ifa_flags);
 
+	//dev必须指定
 	if (d == NULL) {
 		fprintf(stderr, "Not enough information: \"dev\" argument is required.\n");
 		return -1;
@@ -2341,6 +2347,8 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			addattr_l(&req.n, sizeof(req), IFA_ADDRESS, &lcl.data, lcl.bytelen);
 		}
 	}
+
+	//指定地址的前缀长度
 	if (req.ifa.ifa_prefixlen == 0)
 		req.ifa.ifa_prefixlen = lcl.bitlen;
 
@@ -2403,7 +2411,9 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 int do_ipaddr(int argc, char **argv)
 {
 	if (argc < 1)
+	    //列出所有接口地址
 		return ipaddr_list_flush_or_save(0, NULL, IPADD_LIST);
+	//向设备添加地址
 	if (matches(*argv, "add") == 0)
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_CREATE|NLM_F_EXCL, argc-1, argv+1);
 	if (matches(*argv, "change") == 0 ||
@@ -2411,8 +2421,10 @@ int do_ipaddr(int argc, char **argv)
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_REPLACE, argc-1, argv+1);
 	if (matches(*argv, "replace") == 0)
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_CREATE|NLM_F_REPLACE, argc-1, argv+1);
+	//删除设备上的地址
 	if (matches(*argv, "delete") == 0)
 		return ipaddr_modify(RTM_DELADDR, 0, argc-1, argv+1);
+	//列出指定接口或者所有接口地址
 	if (matches(*argv, "list") == 0 || matches(*argv, "show") == 0
 	    || matches(*argv, "lst") == 0)
 		return ipaddr_list_flush_or_save(argc-1, argv+1, IPADD_LIST);

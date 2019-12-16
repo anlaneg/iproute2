@@ -59,6 +59,7 @@ static void explain(void)
 
 static void bpf_cbpf_cb(void *nl, const struct sock_filter *ops, int ops_len)
 {
+    /*添加cbpf指令及指令长度*/
 	addattr16(nl, MAX_MSG, TCA_BPF_OPS_LEN, ops_len);
 	addattr_l(nl, MAX_MSG, TCA_BPF_OPS, ops,
 		  ops_len * sizeof(struct sock_filter));
@@ -67,14 +68,19 @@ static void bpf_cbpf_cb(void *nl, const struct sock_filter *ops, int ops_len)
 static void bpf_ebpf_cb(void *nl, int fd, const char *annotation)
 {
 	addattr32(nl, MAX_MSG, TCA_BPF_FD, fd);
+	/*设置bpf名称*/
 	addattrstrz(nl, MAX_MSG, TCA_BPF_NAME, annotation);
 }
 
 static const struct bpf_cfg_ops bpf_cb_ops = {
+    //非扩展bpf采用netlink下发下去
 	.cbpf_cb = bpf_cbpf_cb,
+	//扩展的ebpf采用bpf的fd关联下发
 	.ebpf_cb = bpf_ebpf_cb,
 };
 
+//解析bpf类型filter
+//例如：tc filter add dev eth0 ingress   pref 1 handle 1   bpf  direct-action object-file bpf/ingress.o section ingress
 static int bpf_parse_opt(struct filter_util *qu, char *handle,
 			 int argc, char **argv, struct nlmsghdr *n)
 {
@@ -83,7 +89,7 @@ static int bpf_parse_opt(struct filter_util *qu, char *handle,
 	unsigned int bpf_gen_flags = 0;
 	unsigned int bpf_flags = 0;
 	struct bpf_cfg_in cfg = {};
-	bool seen_run = false;
+	bool seen_run = false;/*是否给出run关键字*/
 	bool skip_sw = false;
 	struct rtattr *tail;
 	int ret = 0;
@@ -99,6 +105,7 @@ static int bpf_parse_opt(struct filter_util *qu, char *handle,
 		return 0;
 
 	tail = (struct rtattr *)(((void *)n) + NLMSG_ALIGN(n->nlmsg_len));
+	/*bpf options起始位置*/
 	addattr_l(n, MAX_MSG, TCA_OPTIONS, NULL, 0);
 
 	while (argc > 0) {
@@ -109,10 +116,12 @@ static int bpf_parse_opt(struct filter_util *qu, char *handle,
 				duparg("run", *argv);
 opt_bpf:
 			seen_run = true;
-			cfg.type = bpf_type;
+			cfg.type = bpf_type;/*指明为bpf类型*/
+			//设置需要给bpf类型解析的参数
 			cfg.argc = argc;
 			cfg.argv = argv;
 
+			//执行bpf参数解析
 			if (bpf_parse_common(&cfg, &bpf_cb_ops) < 0) {
 				fprintf(stderr,
 					"Unable to parse bpf command line\n");
@@ -136,12 +145,13 @@ opt_bpf:
 			addattr32(n, MAX_MSG, TCA_BPF_CLASSID, handle);
 		} else if (matches(*argv, "direct-action") == 0 ||
 			   matches(*argv, "da") == 0) {
+		    /*指明direct-action*/
 			bpf_flags |= TCA_BPF_FLAG_ACT_DIRECT;
 		} else if (matches(*argv, "skip_hw") == 0) {
 			bpf_gen_flags |= TCA_CLS_FLAGS_SKIP_HW;
 		} else if (matches(*argv, "skip_sw") == 0) {
 			bpf_gen_flags |= TCA_CLS_FLAGS_SKIP_SW;
-			skip_sw = true;
+			skip_sw = true;/*跳过软件*/
 		} else if (matches(*argv, "action") == 0) {
 			NEXT_ARG();
 			if (parse_action(&argc, &argv, TCA_BPF_ACT, n)) {
@@ -161,6 +171,7 @@ opt_bpf:
 			return -1;
 		} else {
 			if (!seen_run)
+			    /*未给出run关键字，认为遇到run关键字，走run解析处理*/
 				goto opt_bpf;
 
 			fprintf(stderr, "What is \"%s\"?\n", *argv);
@@ -173,6 +184,7 @@ opt_bpf:
 
 	if (skip_sw)
 		cfg.ifindex = t->tcm_ifindex;
+	/*bpf文件加载*/
 	if (bpf_load_common(&cfg, &bpf_cb_ops, n) < 0) {
 		fprintf(stderr, "Unable to load program\n");
 		return -1;
@@ -186,7 +198,7 @@ opt_bpf:
 	tail->rta_len = (((void *)n) + n->nlmsg_len) - (void *)tail;
 
 	if (bpf_uds_name)
-		ret = bpf_send_map_fds(bpf_uds_name, bpf_obj);
+		ret = bpf_send_map_fds(bpf_uds_name, bpf_obj/*指定的bpf文件*/);
 
 	return ret;
 }
@@ -262,6 +274,7 @@ static int bpf_print_opt(struct filter_util *qu, FILE *f,
 	return 0;
 }
 
+//bpf模式的filter选项解析
 struct filter_util bpf_filter_util = {
 	.id		= "bpf",
 	.parse_fopt	= bpf_parse_opt,

@@ -292,8 +292,8 @@ int rtnl_addrdump_req(struct rtnl_handle *rth, int family,
 		char buf[128];
 	} req = {
 		.nlh.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg)),
-		.nlh.nlmsg_type = RTM_GETADDR,
-		.nlh.nlmsg_flags = NLM_F_DUMP | NLM_F_REQUEST,
+		.nlh.nlmsg_type = RTM_GETADDR,/*请求获取地址*/
+		.nlh.nlmsg_flags = NLM_F_DUMP /*指明dump方式获取*/| NLM_F_REQUEST,
 		.nlh.nlmsg_seq = rth->dump = ++rth->seq,
 		.ifm.ifa_family = family,
 	};

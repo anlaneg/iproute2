@@ -240,6 +240,8 @@ int ll_index_to_flags(unsigned idx)
 	return im ? im->flags : -1;
 }
 
+
+//取设备对应的ifindex
 unsigned ll_name_to_index(const char *name)
 {
 	const struct ll_cache *im;
