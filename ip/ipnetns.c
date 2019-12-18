@@ -36,7 +36,7 @@ static int usage(void)
 		"	ip netns pids NAME\n"
 		"	ip [-all] netns exec [NAME] cmd ...\n"
 		"	ip netns monitor\n"
-		"	ip netns list-id\n"
+		"	ip netns list-id [target-nsid POSITIVE-INT] [nsid POSITIVE-INT]\n"
 		"NETNSID := auto | POSITIVE-INT\n");
 	exit(-1);
 }
@@ -46,6 +46,7 @@ static struct rtnl_handle rtnsh = { .fd = -1 };
 
 static int have_rtnl_getnsid = -1;
 static int saved_netns = -1;
+static struct link_filter filter;
 
 static int ipnetns_accept_msg(struct rtnl_ctrl_data *ctrl,
 			      struct nlmsghdr *n, void *arg)
@@ -136,7 +137,7 @@ int get_netnsid_from_name(const char *name)
 	parse_rtattr(tb, NETNSA_MAX, NETNS_RTA(rthdr), len);
 
 	if (tb[NETNSA_NSID]) {
-		ret = rta_getattr_u32(tb[NETNSA_NSID]);
+		ret = rta_getattr_s32(tb[NETNSA_NSID]);
 	}
 
 out:
@@ -160,9 +161,13 @@ static struct hlist_head	name_head[NSIDMAP_SIZE];
 
 static struct nsid_cache *netns_map_get_by_nsid(int nsid)
 {
-	uint32_t h = NSID_HASH_NSID(nsid);
 	struct hlist_node *n;
+	uint32_t h;
 
+	if (nsid < 0)
+		return NULL;
+
+	h = NSID_HASH_NSID(nsid);
 	hlist_for_each(n, &nsid_head[h]) {
 		struct nsid_cache *c = container_of(n, struct nsid_cache,
 						    nsid_hash);
@@ -176,6 +181,9 @@ static struct nsid_cache *netns_map_get_by_nsid(int nsid)
 char *get_name_from_nsid(int nsid)
 {
 	struct nsid_cache *c;
+
+	if (nsid < 0)
+		return NULL;
 
 	netns_nsid_socket_init();
 	netns_map_init();
@@ -265,6 +273,9 @@ static int netns_get_name(int nsid, char *name)
 	DIR *dir;
 	int id;
 
+	if (nsid < 0)
+		return -EINVAL;
+
 	dir = opendir(NETNS_RUN_DIR);
 	if (!dir)
 		return -ENOENT;
@@ -276,7 +287,7 @@ static int netns_get_name(int nsid, char *name)
 			continue;
 		id = get_netnsid_from_name(entry->d_name);
 
-		if (nsid == id) {
+		if (id >= 0 && nsid == id) {
 			strcpy(name, entry->d_name);
 			closedir(dir);
 			return 0;
@@ -294,7 +305,7 @@ int print_nsid(struct nlmsghdr *n, void *arg)
 	FILE *fp = (FILE *)arg;
 	struct nsid_cache *c;
 	char name[NAME_MAX];
-	int nsid;
+	int nsid, current;
 
 	if (n->nlmsg_type != RTM_NEWNSID && n->nlmsg_type != RTM_DELNSID)
 		return 0;
@@ -316,17 +327,30 @@ int print_nsid(struct nlmsghdr *n, void *arg)
 	if (n->nlmsg_type == RTM_DELNSID)
 		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
 
-	nsid = rta_getattr_u32(tb[NETNSA_NSID]);
-	print_uint(PRINT_ANY, "nsid", "nsid %u ", nsid);
+	nsid = rta_getattr_s32(tb[NETNSA_NSID]);
+	if (nsid < 0)
+		print_string(PRINT_FP, NULL, "nsid unassigned ", NULL);
+	else
+		print_int(PRINT_ANY, "nsid", "nsid %d ", nsid);
 
-	c = netns_map_get_by_nsid(nsid);
+	if (tb[NETNSA_CURRENT_NSID]) {
+		current = rta_getattr_s32(tb[NETNSA_CURRENT_NSID]);
+		if (current < 0)
+			print_string(PRINT_FP, NULL,
+				     "current-nsid unassigned ", NULL);
+		else
+			print_int(PRINT_ANY, "current-nsid",
+				  "current-nsid %d ", current);
+	}
+
+	c = netns_map_get_by_nsid(tb[NETNSA_CURRENT_NSID] ? current : nsid);
 	if (c != NULL) {
 		print_string(PRINT_ANY, "name",
 			     "(iproute2 netns name: %s)", c->name);
 		netns_map_del(c);
 	}
 
-	/* During 'ip monitor nsid', no chance to have new nsid in cache. */
+	/* nsid might not be in cache */
 	if (c == NULL && n->nlmsg_type == RTM_NEWNSID)
 		if (netns_get_name(nsid, name) == 0) {
 			print_string(PRINT_ANY, "name",
@@ -340,15 +364,106 @@ int print_nsid(struct nlmsghdr *n, void *arg)
 	return 0;
 }
 
+static int get_netnsid_from_netnsid(int nsid)
+{
+	struct {
+		struct nlmsghdr n;
+		struct rtgenmsg g;
+		char            buf[1024];
+	} req = {
+		.n.nlmsg_len = NLMSG_LENGTH(NLMSG_ALIGN(sizeof(struct rtgenmsg))),
+		.n.nlmsg_flags = NLM_F_REQUEST,
+		.n.nlmsg_type = RTM_GETNSID,
+		.g.rtgen_family = AF_UNSPEC,
+	};
+	struct nlmsghdr *answer;
+	int err;
+
+	netns_nsid_socket_init();
+
+	err = addattr32(&req.n, sizeof(req), NETNSA_NSID, nsid);
+	if (err)
+		return err;
+
+	if (filter.target_nsid >= 0) {
+		err = addattr32(&req.n, sizeof(req), NETNSA_TARGET_NSID,
+				filter.target_nsid);
+		if (err)
+			return err;
+	}
+
+	if (rtnl_talk(&rtnsh, &req.n, &answer) < 0)
+		return -2;
+
+	/* Validate message and parse attributes */
+	if (answer->nlmsg_type == NLMSG_ERROR)
+		goto err_out;
+
+	new_json_obj(json);
+	err = print_nsid(answer, stdout);
+	delete_json_obj();
+err_out:
+	free(answer);
+	return err;
+}
+
+static int netns_filter_req(struct nlmsghdr *nlh, int reqlen)
+{
+	int err;
+
+	if (filter.target_nsid >= 0) {
+		err = addattr32(nlh, reqlen, NETNSA_TARGET_NSID,
+				filter.target_nsid);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static int netns_list_id(int argc, char **argv)
 {
+	int nsid = -1;
+
 	if (!ipnetns_have_nsid()) {
 		fprintf(stderr,
 			"RTM_GETNSID is not supported by the kernel.\n");
 		return -ENOTSUP;
 	}
 
-	if (rtnl_nsiddump_req(&rth, AF_UNSPEC) < 0) {
+	filter.target_nsid = -1;
+	while (argc > 0) {
+		if (strcmp(*argv, "target-nsid") == 0) {
+			if (filter.target_nsid >= 0)
+				duparg("target-nsid", *argv);
+			NEXT_ARG();
+
+			if (get_integer(&filter.target_nsid, *argv, 0))
+				invarg("\"target-nsid\" value is invalid",
+				       *argv);
+			else if (filter.target_nsid < 0)
+				invarg("\"target-nsid\" value should be >= 0",
+				       argv[1]);
+		} else if (strcmp(*argv, "nsid") == 0) {
+			if (nsid >= 0)
+				duparg("nsid", *argv);
+			NEXT_ARG();
+
+			if (get_integer(&nsid, *argv, 0))
+				invarg("\"nsid\" value is invalid", *argv);
+			else if (nsid < 0)
+				invarg("\"nsid\" value should be >= 0",
+				       argv[1]);
+		} else
+			usage();
+		argc--; argv++;
+	}
+
+	if (nsid >= 0)
+		return get_netnsid_from_netnsid(nsid);
+
+	if (rtnl_nsiddump_req_filter_fn(&rth, AF_UNSPEC,
+					netns_filter_req) < 0) {
 		perror("Cannot send dump request");
 		exit(1);
 	}
@@ -386,8 +501,7 @@ static int netns_list(int argc, char **argv)
 		if (ipnetns_have_nsid()) {
 			id = get_netnsid_from_name(entry->d_name);
 			if (id >= 0)
-				print_uint(PRINT_ANY, "id",
-					   " (id: %d)", id);
+				print_int(PRINT_ANY, "id", " (id: %d)", id);
 		}
 		print_string(PRINT_FP, NULL, "\n", NULL);
 		close_json_object();
@@ -829,9 +943,9 @@ static int netns_set(int argc, char **argv)
 	if (strcmp(argv[1], "auto") == 0)
 		nsid = -1;
 	else if (get_integer(&nsid, argv[1], 0))
-		invarg("Invalid \"netnsid\" value\n", argv[1]);
+		invarg("Invalid \"netnsid\" value", argv[1]);
 	else if (nsid < 0)
-		invarg("\"netnsid\" value should be >= 0\n", argv[1]);
+		invarg("\"netnsid\" value should be >= 0", argv[1]);
 
 	snprintf(netns_path, sizeof(netns_path), "%s/%s", NETNS_RUN_DIR, name);
 	netns = open(netns_path, O_RDONLY | O_CLOEXEC);
@@ -901,7 +1015,7 @@ int do_netns(int argc, char **argv)
 		return netns_list(0, NULL);
 	}
 
-	if (argc > 1 && invalid_name(argv[1])) {
+	if (!do_all && argc > 1 && invalid_name(argv[1])) {
 		fprintf(stderr, "Invalid netns name \"%s\"\n", argv[1]);
 		exit(-1);
 	}

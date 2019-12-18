@@ -51,6 +51,7 @@
 #include <linux/tipc.h>
 #include <linux/tipc_netlink.h>
 #include <linux/tipc_sockets_diag.h>
+#include <linux/tls.h>
 
 /* AF_VSOCK/PF_VSOCK is only provided since glibc 2.18 */
 #ifndef PF_VSOCK
@@ -133,6 +134,7 @@ enum col_id {
 	COL_RADDR,
 	COL_RSERV,
 	COL_EXT,
+	COL_PROC,
 	COL_MAX
 };
 
@@ -160,6 +162,7 @@ static struct column columns[] = {
 	{ ALIGN_LEFT,	"Port",			"",	0, 0, 0 },
 	{ ALIGN_RIGHT,	"Peer Address:",	" ",	0, 0, 0 },
 	{ ALIGN_LEFT,	"Port",			"",	0, 0, 0 },
+	{ ALIGN_LEFT,	"Process",		"",	0, 0, 0 },
 	{ ALIGN_LEFT,	"",			"",	0, 0, 0 },
 };
 
@@ -1287,6 +1290,11 @@ static void render(void)
 
 		token = buf_token_next(token);
 	}
+	/* Deal with final end-of-line when the last non-empty field printed
+	 * is not the last field.
+	 */
+	if (line_started)
+		printf("\n");
 
 	buf_free_all();
 	current_field = columns;
@@ -2751,6 +2759,72 @@ static void print_md5sig(struct tcp_diag_md5sig *sig)
 	print_escape_buf(sig->tcpm_key, sig->tcpm_keylen, " ,");
 }
 
+static void tcp_tls_version(struct rtattr *attr)
+{
+	u_int16_t val;
+
+	if (!attr)
+		return;
+	val = rta_getattr_u16(attr);
+
+	switch (val) {
+	case TLS_1_2_VERSION:
+		out(" version: 1.2");
+		break;
+	case TLS_1_3_VERSION:
+		out(" version: 1.3");
+		break;
+	default:
+		out(" version: unknown(%hu)", val);
+		break;
+	}
+}
+
+static void tcp_tls_cipher(struct rtattr *attr)
+{
+	u_int16_t val;
+
+	if (!attr)
+		return;
+	val = rta_getattr_u16(attr);
+
+	switch (val) {
+	case TLS_CIPHER_AES_GCM_128:
+		out(" cipher: aes-gcm-128");
+		break;
+	case TLS_CIPHER_AES_GCM_256:
+		out(" cipher: aes-gcm-256");
+		break;
+	}
+}
+
+static void tcp_tls_conf(const char *name, struct rtattr *attr)
+{
+	u_int16_t val;
+
+	if (!attr)
+		return;
+	val = rta_getattr_u16(attr);
+
+	switch (val) {
+	case TLS_CONF_BASE:
+		out(" %s: none", name);
+		break;
+	case TLS_CONF_SW:
+		out(" %s: sw", name);
+		break;
+	case TLS_CONF_HW:
+		out(" %s: hw", name);
+		break;
+	case TLS_CONF_HW_RECORD:
+		out(" %s: hw-record", name);
+		break;
+	default:
+		out(" %s: unknown(%hu)", name, val);
+		break;
+	}
+}
+
 #define TCPI_HAS_OPT(info, opt) !!(info->tcpi_options & (opt))
 
 static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r,
@@ -2904,6 +2978,28 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r,
 		for (len -= sizeof(*sig); len > 0; len -= sizeof(*sig)) {
 			out(",");
 			print_md5sig(sig++);
+		}
+	}
+	if (tb[INET_DIAG_ULP_INFO]) {
+		struct rtattr *ulpinfo[INET_ULP_INFO_MAX + 1] = { 0 };
+
+		parse_rtattr_nested(ulpinfo, INET_ULP_INFO_MAX,
+				    tb[INET_DIAG_ULP_INFO]);
+
+		if (ulpinfo[INET_ULP_INFO_NAME])
+			out(" tcp-ulp-%s",
+			    rta_getattr_str(ulpinfo[INET_ULP_INFO_NAME]));
+
+		if (ulpinfo[INET_ULP_INFO_TLS]) {
+			struct rtattr *tlsinfo[TLS_INFO_MAX + 1] = { 0 };
+
+			parse_rtattr_nested(tlsinfo, TLS_INFO_MAX,
+					    ulpinfo[INET_ULP_INFO_TLS]);
+
+			tcp_tls_version(tlsinfo[TLS_INFO_VERSION]);
+			tcp_tls_cipher(tlsinfo[TLS_INFO_CIPHER]);
+			tcp_tls_conf("rxconf", tlsinfo[TLS_INFO_RXCONF]);
+			tcp_tls_conf("txconf", tlsinfo[TLS_INFO_TXCONF]);
 		}
 	}
 }
@@ -3329,28 +3425,28 @@ static int tcp_show_netlink_file(struct filter *f)
 	}
 
 	while (1) {
-		int status, err2;
+		int err2;
+		size_t status, nitems;
 		struct nlmsghdr *h = (struct nlmsghdr *)buf;
 		struct sockstat s = {};
 
 		status = fread(buf, 1, sizeof(*h), fp);
-		if (status < 0) {
-			perror("Reading header from $TCPDIAG_FILE");
-			break;
-		}
 		if (status != sizeof(*h)) {
-			perror("Unexpected EOF reading $TCPDIAG_FILE");
+			if (ferror(fp))
+				perror("Reading header from $TCPDIAG_FILE");
+			if (feof(fp))
+				fprintf(stderr, "Unexpected EOF reading $TCPDIAG_FILE");
 			break;
 		}
 
-		status = fread(h+1, 1, NLMSG_ALIGN(h->nlmsg_len-sizeof(*h)), fp);
+		nitems = NLMSG_ALIGN(h->nlmsg_len - sizeof(*h));
+		status = fread(h+1, 1, nitems, fp);
 
-		if (status < 0) {
-			perror("Reading $TCPDIAG_FILE");
-			break;
-		}
-		if (status + sizeof(*h) < h->nlmsg_len) {
-			perror("Unexpected EOF reading $TCPDIAG_FILE");
+		if (status != nitems) {
+			if (ferror(fp))
+				perror("Reading $TCPDIAG_FILE");
+			if (feof(fp))
+				fprintf(stderr, "Unexpected EOF reading $TCPDIAG_FILE");
 			break;
 		}
 

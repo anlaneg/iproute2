@@ -57,7 +57,7 @@ flower \- flow based traffic control filter
 .BR dst_ip " | " src_ip " } "
 .IR PREFIX " | { "
 .BR dst_port " | " src_port " } { "
-.IR port_number " | "
+.IR MASKED_NUMBER " | "
 .IR min_port_number-max_port_number " } | "
 .B tcp_flags
 .IR MASKED_TCP_FLAGS " | "
@@ -221,12 +221,13 @@ must be a valid IPv4 or IPv6 address, depending on the \fBprotocol\fR
 option to tc filter, optionally followed by a slash and the prefix length.
 If the prefix is missing, \fBtc\fR assumes a full-length host match.
 .TP
-.IR \fBdst_port " { "  NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
+.IR \fBdst_port " { "  MASKED_NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
 .TQ
-.IR \fBsrc_port " { "  NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
-Match on layer 4 protocol source or destination port number. Alternatively, the
-mininum and maximum values can be specified to match on a range of layer 4
-protocol source or destination port numbers. Only available for
+.IR \fBsrc_port " { "  MASKED_NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
+Match on layer 4 protocol source or destination port number, with an
+optional mask. Alternatively, the mininum and maximum values can be
+specified to match on a range of layer 4 protocol source or destination
+port numbers. Only available for
 .BR ip_proto " values " udp ", " tcp  " and " sctp
 which have to be specified in beforehand.
 .TP
@@ -289,6 +290,41 @@ bits is assumed.
 .TQ
 .BI enc_ttl " NUMBER"
 .TQ
+.BR
+.TP
+.BI ct_state " CT_STATE"
+.TQ
+.BI ct_zone " CT_MASKED_ZONE"
+.TQ
+.BI ct_mark " CT_MASKED_MARK"
+.TQ
+.BI ct_label " CT_MASKED_LABEL"
+Matches on connection tracking info
+.RS
+.TP
+.I CT_STATE
+Match the connection state, and can ne combination of [{+|-}flag] flags, where flag can be one of
+.RS
+.TP
+trk - Tracked connection.
+.TP
+new - New connection.
+.TP
+est - Established connection.
+.TP
+Example: +trk+est
+.RE
+.TP
+.I CT_MASKED_ZONE
+Match the connection zone, and can be masked.
+.TP
+.I CT_MASKED_MARK
+32bit match on the connection mark, and can be masked.
+.TP
+.I CT_MASKED_LABEL
+128bit match on the connection label, and can be masked.
+.RE
+.TP
 .BI geneve_opts " OPTIONS"
 Match on IP tunnel metadata. Key id
 .I NUMBER

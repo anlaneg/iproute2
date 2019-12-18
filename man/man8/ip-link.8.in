@@ -244,6 +244,17 @@ ip-link \- network device configuration
 .IR VLAN-QOS " ] ["
 .B proto
 .IR VLAN-PROTO " ] ]"
+.in -8
+
+.ti -8
+.BI "ip link property add"
+.RB "[ " altname
+.IR NAME " .. ]"
+
+.ti -8
+.BI "ip link property del"
+.RB "[ " altname
+.IR NAME " .. ]"
 
 .SH "DESCRIPTION"
 .SS ip link add - add virtual link
@@ -1910,7 +1921,7 @@ move the device to the network namespace associated with name
 .RI process " PID".
 
 Some devices are not allowed to change network namespace: loopback, bridge,
-ppp, wireless. These are network namespace local devices. In such case
+wireless. These are network namespace local devices. In such case
 .B ip
 tool will return "Invalid argument" error. It is possible to find out
 if device is local to a single network namespace by checking
@@ -2364,7 +2375,6 @@ Commands:
 .BI dev " NAME " (default)
 .I NAME
 specifies the network device to show.
-If this argument is omitted all devices in the default group are listed.
 
 .TP
 .BI group " GROUP "

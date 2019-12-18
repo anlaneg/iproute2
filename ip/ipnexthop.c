@@ -19,6 +19,7 @@ static struct {
 	unsigned int groups;
 	unsigned int ifindex;
 	unsigned int master;
+	unsigned int proto;
 } filter;
 
 enum {
@@ -34,7 +35,7 @@ static void usage(void) __attribute__((noreturn));
 static void usage(void)
 {
 	fprintf(stderr,
-		"Usage: ip nexthop { list | flush } SELECTOR\n"
+		"Usage: ip nexthop { list | flush } [ protocol ID ] SELECTOR\n"
 		"       ip nexthop { add | replace } id ID NH [ protocol ID ]\n"
 		"       ip nexthop { get| del } id ID\n"
 		"SELECTOR := [ id ID ] [ dev DEV ] [ vrf NAME ] [ master DEV ]\n"
@@ -108,6 +109,9 @@ static int flush_nexthop(struct nlmsghdr *nlh, void *arg)
 		fprintf(stderr, "BUG: wrong nlmsg len %d\n", len);
 		return -1;
 	}
+
+	if (filter.proto && nhm->nh_protocol != filter.proto)
+		return 0;
 
 	parse_rtattr(tb, NHA_MAX, RTM_NHA(nhm), len);
 	if (tb[NHA_ID])
@@ -213,6 +217,9 @@ int print_nexthop(struct nlmsghdr *n, void *arg)
 		return -1;
 	}
 
+	if (filter.proto && filter.proto != nhm->nh_protocol)
+		return 0;
+
 	parse_rtattr(tb, NHA_MAX, RTM_NHA(nhm), len);
 
 	open_json_object(NULL);
@@ -242,7 +249,7 @@ int print_nexthop(struct nlmsghdr *n, void *arg)
 	}
 
 	if (tb[NHA_BLACKHOLE])
-		print_null(PRINT_ANY, "blackhole", "blackhole", NULL);
+		print_null(PRINT_ANY, "blackhole", "blackhole ", NULL);
 
 	if (nhm->nh_protocol != RTPROT_UNSPEC || show_details > 0) {
 		print_string(PRINT_ANY, "protocol", "proto %s ",
@@ -473,6 +480,13 @@ static int ipnh_list_flush(int argc, char **argv, int action)
 			if (get_unsigned(&id, *argv, 0))
 				invarg("invalid id value", *argv);
 			return ipnh_get_id(id);
+		} else if (!matches(*argv, "protocol")) {
+			__u32 proto;
+
+			NEXT_ARG();
+			if (get_unsigned(&proto, *argv, 0))
+				invarg("invalid protocol value", *argv);
+			filter.proto = proto;
 		} else if (matches(*argv, "help") == 0) {
 			usage();
 		} else {
