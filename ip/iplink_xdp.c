@@ -31,6 +31,7 @@ static void xdp_ebpf_cb(void *raw, int fd, const char *annotation)
 	struct iplink_req *req = xdp->req;
 	struct rtattr *xdp_attr;
 
+	//存入IFLA_XDP_FD
 	xdp_attr = addattr_nest(&req->n, sizeof(*req), IFLA_XDP);
 	addattr32(&req->n, sizeof(*req), IFLA_XDP_FD, fd);
 	if (xdp->flags)
