@@ -107,7 +107,9 @@ int prio_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 					sizeof(*qopt)))
 		return -1;
 
+	//显示bands
 	print_uint(PRINT_ANY, "bands", "bands %u ", qopt->bands);
+	//显示priomap
 	open_json_array(PRINT_ANY, "priomap ");
 	for (i = 0; i <= TC_PRIO_MAX; i++)
 		print_uint(PRINT_ANY, NULL, " %d", qopt->priomap[i]);
@@ -122,6 +124,7 @@ int prio_print_opt(struct qdisc_util *qu, FILE *f, struct rtattr *opt)
 	return 0;
 }
 
+//pfifo_fast采用的qdisc类型
 struct qdisc_util prio_qdisc_util = {
 	.id		= "prio",
 	.parse_qopt	= prio_parse_opt,

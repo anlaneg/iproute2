@@ -630,12 +630,13 @@ int rtnl_send_check(struct rtnl_handle *rth, const void *buf, int len)
 	return 0;
 }
 
+/*发送dump类型请求*/
 int rtnl_dump_request(struct rtnl_handle *rth, int type, void *req, int len)
 {
 	struct nlmsghdr nlh = {
 		.nlmsg_len = NLMSG_LENGTH(len),
 		.nlmsg_type = type,
-		.nlmsg_flags = NLM_F_DUMP | NLM_F_REQUEST,
+		.nlmsg_flags = NLM_F_DUMP/*发送dump类型请求*/ | NLM_F_REQUEST,
 		.nlmsg_seq = rth->dump = ++rth->seq,
 	};
 	struct sockaddr_nl nladdr = { .nl_family = AF_NETLINK };
@@ -851,6 +852,7 @@ static int rtnl_dump_filter_l(struct rtnl_handle *rth,
 					return -1;
 				}
 
+				/*调用filter回调，执行元素显示或过滤*/
 				if (!rth->dump_fp) {
 					err = a->filter(h, a->arg1);
 					if (err < 0) {

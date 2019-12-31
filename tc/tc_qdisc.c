@@ -268,8 +268,10 @@ int print_qdisc(struct nlmsghdr *n, void *arg)
 			(n->nlmsg_flags & NLM_F_EXCL))
 		print_bool(PRINT_ANY, "added", "added ", true);
 
+	//显示qdisc类型，例如qdisc pfifo_fast
 	print_string(PRINT_ANY, "kind", "qdisc %s",
 		     rta_getattr_str(tb[TCA_KIND]));
+	//显示handle
 	sprintf(abuf, "%x:", t->tcm_handle >> 16);
 	print_string(PRINT_ANY, "handle", " %s", abuf);
 	if (show_raw) {
@@ -278,12 +280,14 @@ int print_qdisc(struct nlmsghdr *n, void *arg)
 	}
 	print_string(PRINT_FP, NULL, " ", NULL);
 
+	/*显示设备名称*/
 	if (filter_ifindex == 0)
 		print_devname(PRINT_ANY, t->tcm_ifindex);
 
 	if (t->tcm_parent == TC_H_ROOT)
 		print_bool(PRINT_ANY, "root", "root ", true);
 	else if (t->tcm_parent) {
+	    //显示父handle
 		print_tc_classid(abuf, sizeof(abuf), t->tcm_parent);
 		print_string(PRINT_ANY, "parent", "parent %s ", abuf);
 	}
@@ -322,6 +326,7 @@ int print_qdisc(struct nlmsghdr *n, void *arg)
 	open_json_object("options");
 	if (tb[TCA_OPTIONS]) {
 		if (q)
+		    /*显示具体qdisc的信息*/
 			q->print_qopt(q, fp, tb[TCA_OPTIONS]);
 		else
 			fprintf(stderr, "Cannot parse qdisc parameters\n");
@@ -353,6 +358,7 @@ int print_qdisc(struct nlmsghdr *n, void *arg)
 	return 0;
 }
 
+//列出系统所有qdisc（支持过滤）
 static int tc_qdisc_list(int argc, char **argv)
 {
 	struct tcmsg t = { .tcm_family = AF_UNSPEC };
@@ -385,6 +391,7 @@ static int tc_qdisc_list(int argc, char **argv)
 	ll_init_map(&rth);
 
 	if (d[0]) {
+	    /*取设备对应的ifindex*/
 		t.tcm_ifindex = ll_name_to_index(d);
 		if (!t.tcm_ifindex)
 			return -nodev(d);
