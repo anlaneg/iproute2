@@ -31,23 +31,28 @@ int numeric;
 
 struct rtnl_hash_entry {
 	struct rtnl_hash_entry	*next;
-	const char		*name;
-	unsigned int		id;
+	const char		*name;//路由表名称
+	unsigned int		id;//路由表id
 };
 
+//读取fp一行数据，分析name与id映射关系
 static int fread_id_name(FILE *fp, int *id, char *namebuf)
 {
 	char buf[NAME_MAX_LEN];
 
+	//读取一行
 	while (fgets(buf, sizeof(buf), fp)) {
 		char *p = buf;
 
+		//跳过table,空格
 		while (*p == ' ' || *p == '\t')
 			p++;
 
+		//跳过注释行，空行
 		if (*p == '#' || *p == '\n' || *p == 0)
 			continue;
 
+		//提取id与名称的映射
 		if (sscanf(p, "0x%x %s\n", id, namebuf) != 2 &&
 				sscanf(p, "0x%x %s #", id, namebuf) != 2 &&
 				sscanf(p, "%d %s\n", id, namebuf) != 2 &&
@@ -60,6 +65,7 @@ static int fread_id_name(FILE *fp, int *id, char *namebuf)
 	return 0;
 }
 
+//加载文件file
 static void
 rtnl_hash_initialize(const char *file, struct rtnl_hash_entry **hash, int size)
 {
@@ -73,6 +79,7 @@ rtnl_hash_initialize(const char *file, struct rtnl_hash_entry **hash, int size)
 	if (!fp)
 		return;
 
+	//读取并加载文件中的name与id的映射配置
 	while ((ret = fread_id_name(fp, &id, &namebuf[0]))) {
 		if (ret == -1) {
 			fprintf(stderr, "Database %s is corrupted at %s\n",
@@ -84,6 +91,7 @@ rtnl_hash_initialize(const char *file, struct rtnl_hash_entry **hash, int size)
 		if (id < 0)
 			continue;
 
+		//依据名称与id的映射关系，创建entry,并加入hashtable
 		entry = malloc(sizeof(*entry));
 		entry->id   = id;
 		entry->name = strdup(namebuf);
@@ -382,10 +390,14 @@ static void rtnl_rttable_initialize(void)
 	int i;
 
 	rtnl_rttable_init = 1;
+
+	//初始化各路由表
 	for (i = 0; i < 256; i++) {
 		if (rtnl_rttable_hash[i])
 			rtnl_rttable_hash[i]->id = i;
 	}
+
+	//加载rt_tables
 	rtnl_hash_initialize(CONFDIR "/rt_tables",
 			     rtnl_rttable_hash, 256);
 
@@ -397,6 +409,7 @@ static void rtnl_rttable_initialize(void)
 		char path[PATH_MAX];
 		size_t len;
 
+		//跳过隐藏文件及目录（当前目录，上一次目录）
 		if (*de->d_name == '.')
 			continue;
 
@@ -404,11 +417,14 @@ static void rtnl_rttable_initialize(void)
 		len = strlen(de->d_name);
 		if (len <= 5)
 			continue;
+
+		//只考虑.conf后缀的文件
 		if (strcmp(de->d_name + len - 5, ".conf"))
 			continue;
 
 		snprintf(path, sizeof(path),
 			 CONFDIR "/rt_tables.d/%s", de->d_name);
+		//加载.conf文件中的名称及id的映射关系
 		rtnl_hash_initialize(path, rtnl_rttable_hash, 256);
 	}
 	closedir(d);
@@ -437,6 +453,7 @@ int rtnl_rttable_a2n(__u32 *id, const char *arg)
 	char *end;
 	unsigned long i;
 
+	//查询cache
 	if (cache && strcmp(cache, arg) == 0) {
 		*id = res;
 		return 0;
@@ -445,11 +462,13 @@ int rtnl_rttable_a2n(__u32 *id, const char *arg)
 	if (!rtnl_rttable_init)
 		rtnl_rttable_initialize();
 
+	//在table中查询名称与name的映射
 	for (i = 0; i < 256; i++) {
 		entry = rtnl_rttable_hash[i];
 		while (entry && strcmp(entry->name, arg))
 			entry = entry->next;
 		if (entry) {
+			/*与arg命中*/
 			cache = entry->name;
 			res = entry->id;
 			*id = res;
@@ -457,6 +476,7 @@ int rtnl_rttable_a2n(__u32 *id, const char *arg)
 		}
 	}
 
+	/*未与名称匹配，尝试与id匹配*/
 	i = strtoul(arg, &end, 0);
 	if (!end || end == arg || *end || i > RT_TABLE_MAX)
 		return -1;

@@ -857,6 +857,7 @@ static int __check_ifname(const char *name)
 	return 0;
 }
 
+//检查名称name是一个合法的接口名称字符串
 int check_ifname(const char *name)
 {
 	/* These checks mimic kernel checks in dev_valid_name */

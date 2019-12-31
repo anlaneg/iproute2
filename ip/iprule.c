@@ -787,6 +787,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 	};
 
 	if (cmd == RTM_NEWRULE) {
+		//新建规则
 		if (argc == 0) {
 			fprintf(stderr,
 				"\"ip rule add\" requires arguments.\n");
@@ -797,14 +798,17 @@ static int iprule_modify(int cmd, int argc, char **argv)
 	}
 
 	if (cmd == RTM_DELRULE && argc == 0) {
+		//规则删除，但无参数，报错
 		fprintf(stderr, "\"ip rule del\" requires arguments.\n");
 		return -1;
 	}
 
 	while (argc > 0) {
 		if (strcmp(*argv, "not") == 0) {
+			//指定了not修饰符，打invert标记
 			req.frh.flags |= FIB_RULE_INVERT;
 		} else if (strcmp(*argv, "from") == 0) {
+			//添加用户指定的源地址
 			inet_prefix dst;
 
 			NEXT_ARG();
@@ -813,6 +817,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			addattr_l(&req.n, sizeof(req), FRA_SRC,
 				  &dst.data, dst.bytelen);
 		} else if (strcmp(*argv, "to") == 0) {
+			//添加用户指定的目的地址
 			inet_prefix dst;
 
 			NEXT_ARG();
@@ -823,6 +828,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 		} else if (matches(*argv, "preference") == 0 ||
 			   matches(*argv, "order") == 0 ||
 			   matches(*argv, "priority") == 0) {
+			//添加优化级
 			__u32 pref;
 
 			NEXT_ARG();
@@ -831,6 +837,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			addattr32(&req.n, sizeof(req), FRA_PRIORITY, pref);
 		} else if (strcmp(*argv, "tos") == 0 ||
 			   matches(*argv, "dsfield") == 0) {
+			//添加tos字段
 			__u32 tos;
 
 			NEXT_ARG();
@@ -864,6 +871,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("invalid realms\n", *argv);
 			addattr32(&req.n, sizeof(req), FRA_FLOW, realm);
 		} else if (matches(*argv, "protocol") == 0) {
+			//添加协议
 			__u32 proto;
 
 			NEXT_ARG();
@@ -871,6 +879,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("\"protocol\" value is invalid\n", *argv);
 			addattr8(&req.n, sizeof(req), FRA_PROTOCOL, proto);
 		} else if (matches(*argv, "tun_id") == 0) {
+			//添加隧道id
 			__u64 tun_id;
 
 			NEXT_ARG();
@@ -879,12 +888,14 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			addattr64(&req.n, sizeof(req), FRA_TUN_ID, tun_id);
 		} else if (matches(*argv, "table") == 0 ||
 			   strcmp(*argv, "lookup") == 0) {
+			//指定查询哪个路由表
 			NEXT_ARG();
 			if (rtnl_rttable_a2n(&tid, *argv))
 				invarg("invalid table ID\n", *argv);
 			if (tid < 256)
-				req.frh.table = tid;
+				req.frh.table = tid;/*查询的表小于256时*/
 			else {
+				/*查询的表大于256时，通过FRA_TABLE指定*/
 				req.frh.table = RT_TABLE_UNSPEC;
 				addattr32(&req.n, sizeof(req), FRA_TABLE, tid);
 			}
@@ -911,12 +922,14 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				  FRA_SUPPRESS_IFGROUP, group);
 		} else if (strcmp(*argv, "dev") == 0 ||
 			   strcmp(*argv, "iif") == 0) {
+			//指定入接口
 			NEXT_ARG();
 			if (check_ifname(*argv))
 				invarg("\"iif\"/\"dev\" not a valid ifname", *argv);
 			addattr_l(&req.n, sizeof(req), FRA_IFNAME,
 				  *argv, strlen(*argv)+1);
 		} else if (strcmp(*argv, "oif") == 0) {
+			//指定出接口
 			NEXT_ARG();
 			if (check_ifname(*argv))
 				invarg("\"oif\" not a valid ifname", *argv);
@@ -927,6 +940,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			table_ok = 1;
 			l3mdev_rule = 1;
 		} else if (strcmp(*argv, "uidrange") == 0) {
+			//指定uidrange范围
 			struct fib_rule_uid_range r;
 
 			NEXT_ARG();
@@ -951,6 +965,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				       *argv);
 			addattr8(&req.n, sizeof(req), FRA_IP_PROTO, ipproto);
 		} else if (strcmp(*argv, "sport") == 0) {
+			//指定src port范围
 			struct fib_rule_port_range r;
 			int ret = 0;
 
@@ -963,6 +978,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			addattr_l(&req.n, sizeof(req), FRA_SPORT_RANGE, &r,
 				  sizeof(r));
 		} else if (strcmp(*argv, "dport") == 0) {
+			//指定dst port
 			struct fib_rule_port_range r;
 			int ret = 0;
 
@@ -977,12 +993,14 @@ static int iprule_modify(int cmd, int argc, char **argv)
 		} else {
 			int type;
 
+			//指定动作类型
 			if (strcmp(*argv, "type") == 0)
 				NEXT_ARG();
 
 			if (matches(*argv, "help") == 0)
 				usage();
 			else if (matches(*argv, "goto") == 0) {
+				//通过goto 来支持继续分类
 				__u32 target;
 
 				type = FR_ACT_GOTO;
@@ -992,8 +1010,10 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				addattr32(&req.n, sizeof(req),
 					  FRA_GOTO, target);
 			} else if (matches(*argv, "nop") == 0)
+				//通过nop来支持匹配，但不做动作
 				type = FR_ACT_NOP;
 			else if (rtnl_rtntype_a2n(&type, *argv))
+				//指定要命中的路由类型
 				invarg("Failed to parse rule type", *argv);
 			req.frh.action = type;
 			table_ok = 1;
@@ -1008,6 +1028,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 		return -EINVAL;
 	}
 
+	//如果未指定family,则更正为AF_INET
 	if (req.frh.family == AF_UNSPEC)
 		req.frh.family = AF_INET;
 
@@ -1033,6 +1054,7 @@ int do_iprule(int argc, char **argv)
 	} else if (matches(argv[0], "restore") == 0) {
 		return iprule_restore();
 	} else if (matches(argv[0], "add") == 0) {
+		//添加策略
 		return iprule_modify(RTM_NEWRULE, argc-1, argv+1);
 	} else if (matches(argv[0], "delete") == 0) {
 		return iprule_modify(RTM_DELRULE, argc-1, argv+1);

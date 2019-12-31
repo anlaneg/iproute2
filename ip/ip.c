@@ -76,8 +76,8 @@ static const struct cmd {
 	{ "address",	do_ipaddr },//地址配置相关的命令
 	{ "addrlabel",	do_ipaddrlabel },
 	{ "maddress",	do_multiaddr },
-	{ "route",	do_iproute },
-	{ "rule",	do_iprule },
+	{ "route",	do_iproute },//路由添加
+	{ "rule",	do_iprule },//策略路由添加
 	{ "neighbor",	do_ipneigh },
 	{ "neighbour",	do_ipneigh },
 	{ "ntable",	do_ipntable },
