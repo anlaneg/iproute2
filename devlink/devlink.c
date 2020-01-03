@@ -337,6 +337,7 @@ static char *dl_argv(struct dl *dl)
 	return *dl->argv;
 }
 
+//跳过已识别的参数
 static void dl_arg_inc(struct dl *dl)
 {
 	if (dl_argc(dl) == 0)
@@ -351,6 +352,7 @@ static void dl_arg_dec(struct dl *dl)
 	dl->argv--;
 }
 
+//取下一个待解释的参数，并跳过此参数
 static char *dl_argv_next(struct dl *dl)
 {
 	char *ret;
@@ -645,6 +647,7 @@ static unsigned int strslashcount(char *str)
 	return count;
 }
 
+//通过'/'划分string,成before,after
 static int strslashrsplit(char *str, char **before, char **after)
 {
 	char *slash;
@@ -728,6 +731,7 @@ static int strtobool(const char *str, bool *p_val)
 	return 0;
 }
 
+//通过'/'区分bus_name,dev_name
 static int __dl_argv_handle(char *str, char **p_bus_name, char **p_dev_name)
 {
 	strslashrsplit(str, p_bus_name, p_dev_name);
@@ -742,11 +746,15 @@ static int dl_argv_handle(struct dl *dl, char **p_bus_name, char **p_dev_name)
 		pr_err("Devlink identification (\"bus_name/dev_name\") expected\n");
 		return -EINVAL;
 	}
+
+	//只容许有一个'/'
 	if (strslashcount(str) != 1) {
 		pr_err("Wrong devlink identification string format.\n");
 		pr_err("Expected \"bus_name/dev_name\".\n");
 		return -EINVAL;
 	}
+
+	//区分设置的bus_name,dev_name
 	return __dl_argv_handle(str, p_bus_name, p_dev_name);
 }
 
@@ -1023,9 +1031,11 @@ static int threshold_type_get(const char *typestr,
 	return 0;
 }
 
+//通过字符串区分应采用哪种mode
 static int eswitch_mode_get(const char *typestr,
 			    enum devlink_eswitch_mode *p_mode)
 {
+    //当前支持legacy,switchdev两种模式
 	if (strcmp(typestr, ESWITCH_MODE_LEGACY) == 0) {
 		*p_mode = DEVLINK_ESWITCH_MODE_LEGACY;
 	} else if (strcmp(typestr, ESWITCH_MODE_SWITCHDEV) == 0) {
@@ -1182,6 +1192,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		o_required &= ~(DL_OPT_HANDLE | DL_OPT_HANDLEP) | handle_bit;
 		o_found |= handle_bit;
 	} else if (o_required & DL_OPT_HANDLE) {
+	    //解释当前参数，获知bus_name,dev_name
 		err = dl_argv_handle(dl, &opts->bus_name, &opts->dev_name);
 		if (err)
 			return err;
@@ -1283,6 +1294,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			o_found |= DL_OPT_SB_TC;
 		} else if (dl_argv_match(dl, "mode") &&
 			   (o_all & DL_OPT_ESWITCH_MODE)) {
+		    /* 获取eswitch的模式参数*/
 			const char *typestr;
 
 			dl_arg_inc(dl);
@@ -2214,7 +2226,7 @@ static int cmd_dev_eswitch_show(struct dl *dl)
 	return err;
 }
 
-//设置eswitch配置
+//设置eswitch模式
 static int cmd_dev_eswitch_set(struct dl *dl)
 {
 	struct nlmsghdr *nlh;
@@ -2247,9 +2259,11 @@ static int cmd_dev_eswitch(struct dl *dl)
 		return 0;
 	} else if (dl_argv_match(dl, "set")) {
 		//devlink dev eswitch set 命令处理
+	    //设置eswitch的模式
 		dl_arg_inc(dl);
 		return cmd_dev_eswitch_set(dl);
 	} else if (dl_argv_match(dl, "show")) {
+	    //显示eswitch的模式
 		dl_arg_inc(dl);
 		return cmd_dev_eswitch_show(dl);
 	}
