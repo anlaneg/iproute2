@@ -204,7 +204,8 @@ const char *rtnl_rtprot_n2a(int id, char *buf, int len)
 	return buf;
 }
 
-int rtnl_rtprot_a2n(__u32 *id/*出参，协议类型索引*/, const char *arg)
+//获得路由协议类型
+int rtnl_rtprot_a2n(__u32 *id/*出参，路由协议类型索引*/, const char *arg)
 {
 	static char *cache;
 	static unsigned long res;
@@ -219,7 +220,7 @@ int rtnl_rtprot_a2n(__u32 *id/*出参，协议类型索引*/, const char *arg)
 	if (!rtnl_rtprot_init)
 		rtnl_rtprot_initialize();
 
-	//确定协议的类型索引（例如ospf,dhcp等）
+	//确定路由协议的类型索引（例如ospf,dhcp等）
 	for (i = 0; i < 256; i++) {
 		if (rtnl_rtprot_tab[i] &&
 		    strcmp(rtnl_rtprot_tab[i], arg) == 0) {

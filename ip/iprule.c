@@ -230,6 +230,7 @@ static bool filter_nlmsg(struct nlmsghdr *n, struct rtattr **tb, int host_len)
 	return true;
 }
 
+//显示ip rule
 int print_rule(struct nlmsghdr *n, void *arg)
 {
 	FILE *fp = arg;
@@ -261,6 +262,7 @@ int print_rule(struct nlmsghdr *n, void *arg)
 	if (tb[FRA_PRIORITY])
 		prio = rta_getattr_u32(tb[FRA_PRIORITY]);
 
+	//显示策略优先级
 	print_uint(PRINT_ANY, "priority", "%u:\t", prio);
 
 	if (frh->flags & FIB_RULE_INVERT)
