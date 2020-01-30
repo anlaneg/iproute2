@@ -41,16 +41,19 @@ static int parse_noeopt(struct exec_util *eu, int argc, char **argv)
 	return 0;
 }
 
+//查找可exec的扩展util
 static struct exec_util *get_exec_kind(const char *name)
 {
 	struct exec_util *eu;
 	char buf[256];
 	void *dlh;
 
+	//在已注册的exec_list中查找
 	for (eu = exec_list; eu; eu = eu->next)
 		if (strcmp(eu->id, name) == 0)
 			return eu;
 
+	//加载对应名称的so,在其中查找%s_exec_util结构体
 	snprintf(buf, sizeof(buf), "%s/e_%s.so", get_tc_lib(), name);
 	dlh = dlopen(buf, RTLD_LAZY);
 	if (dlh == NULL) {
@@ -67,6 +70,7 @@ static struct exec_util *get_exec_kind(const char *name)
 	if (eu == NULL)
 		goto noexist;
 reg:
+	//如果找到了，就注册它
 	eu->next = exec_list;
 	exec_list = eu;
 

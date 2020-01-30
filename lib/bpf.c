@@ -3311,6 +3311,7 @@ int bpf_recv_map_fds(const char *path, int *fds, struct bpf_map_aux *aux,
 	struct sockaddr_un addr = { .sun_family = AF_UNIX };
 	int fd, ret;
 
+	//创建unix socket
 	fd = socket(AF_UNIX, SOCK_DGRAM, 0);
 	if (fd < 0) {
 		fprintf(stderr, "Cannot open socket: %s\n",

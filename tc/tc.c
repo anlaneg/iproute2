@@ -230,6 +230,7 @@ static int do_cmd(int argc, char **argv)
 		return do_action(argc-1, argv+1);
 	if (matches(*argv, "monitor") == 0)
 		return do_tcmonitor(argc-1, argv+1);
+	//tc exec 命令
 	if (matches(*argv, "exec") == 0)
 		return do_exec(argc-1, argv+1);
 	if (matches(*argv, "help") == 0) {

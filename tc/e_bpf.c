@@ -43,6 +43,7 @@ static void explain(void)
 		BPF_DEFAULT_CMD);
 }
 
+//计算环境变量的数目
 static int bpf_num_env_entries(void)
 {
 	char **envp;
@@ -67,6 +68,7 @@ static int parse_bpf(struct exec_util *eu, int argc, char **argv)
 	while (argc > 0) {
 		if (matches(*argv, "run") == 0) {
 			NEXT_ARG();
+			/*记录要运行的参数*/
 			argv_run = argv;
 			break;
 		} else if (matches(*argv, "import") == 0) {
@@ -138,15 +140,18 @@ static int parse_bpf(struct exec_util *eu, int argc, char **argv)
 		goto err;
 	}
 
+	//复制系统已有环境变量
 	for (i = 0; i < env_old; i++)
 		envp_run[i] = environ[i];
 
+	//定义maps的数目
 	ret = asprintf(&tmp, "BPF_NUM_MAPS=%u", aux.num_ent);
 	if (ret < 0)
 		goto err_free;
 
 	envp_run[env_old] = tmp;
 
+	//记录各BPF_MAP%u的fd值
 	for (i = env_map; i < env_num - 1; i++) {
 		ret = asprintf(&tmp, "BPF_MAP%u=%u",
 			       aux.ent[i - env_map].id,
@@ -157,8 +162,10 @@ static int parse_bpf(struct exec_util *eu, int argc, char **argv)
 		envp_run[i] = tmp;
 	}
 
+	//最后一个元素置为NULL
 	envp_run[env_num - 1] = NULL;
 out:
+	//执行argv_run[0]号对应的命令并传入参数
 	return execvpe(argv_run[0], argv_run, envp_run);
 
 err_free_env:
@@ -172,6 +179,7 @@ err:
 	return -1;
 }
 
+//tc exec bpf命令的处理结构体
 struct exec_util bpf_exec_util = {
 	.id		= "bpf",
 	.parse_eopt	= parse_bpf,
