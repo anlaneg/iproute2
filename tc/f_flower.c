@@ -1640,7 +1640,8 @@ static void flower_print_eth_addr(char *name, struct rtattr *addr_attr,
 			sprintf(out + done, "/%d", bits);
 	}
 
-	sprintf(namefrm, "\n  %s %%s", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%s", name);
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 
@@ -1666,7 +1667,8 @@ static void flower_print_eth_type(__be16 *p_eth_type,
 	else
 		sprintf(out, "%04x", ntohs(eth_type));
 
-	print_string(PRINT_ANY, "eth_type", "\n  eth_type %s", out);
+	print_nl();
+	print_string(PRINT_ANY, "eth_type", "  eth_type %s", out);
 	*p_eth_type = eth_type;
 }
 
@@ -1694,7 +1696,8 @@ static void flower_print_ip_proto(__u8 *p_ip_proto,
 	else
 		sprintf(out, "%02x", ip_proto);
 
-	print_string(PRINT_ANY, "ip_proto", "\n  ip_proto %s", out);
+	print_nl();
+	print_string(PRINT_ANY, "ip_proto", "  ip_proto %s", out);
 	*p_ip_proto = ip_proto;
 }
 
@@ -1725,7 +1728,8 @@ static void flower_print_matching_flags(char *name,
 			continue;
 		if (mtf_mask & flags_str[i].flag) {
 			if (++count == 1) {
-				print_string(PRINT_FP, NULL, "\n  %s ", name);
+				print_nl();
+				print_string(PRINT_FP, NULL, "  %s ", name);
 				open_json_object(name);
 			} else {
 				print_string(PRINT_FP, NULL, "/", NULL);
@@ -1784,7 +1788,8 @@ static void flower_print_ip_addr(char *name, __be16 eth_type,
 	else if (bits < len * 8)
 		sprintf(out + done, "/%d", bits);
 
-	sprintf(namefrm, "\n  %s %%s", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%s", name);
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 static void flower_print_ip4_addr(char *name, struct rtattr *addr_attr,
@@ -1818,7 +1823,8 @@ static void flower_print_port_range(char *name, struct rtattr *min_attr,
 
 		done = sprintf(out, "%u", rta_getattr_be16(min_attr));
 		sprintf(out + done, "-%u", rta_getattr_be16(max_attr));
-		sprintf(namefrm, "\n  %s %%s", name);
+		print_nl();
+		sprintf(namefrm, "  %s %%s", name);
 		print_string(PRINT_ANY, name, namefrm, out);
 	}
 }
@@ -1837,8 +1843,8 @@ static void flower_print_tcp_flags(const char *name, struct rtattr *flags_attr,
 	if (mask_attr)
 		sprintf(out + done, "/%x", rta_getattr_be16(mask_attr));
 
-	print_string(PRINT_FP, NULL, "%s  ", _SL_);
-	sprintf(namefrm, "%s %%s", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%s", name);
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 
@@ -1872,7 +1878,8 @@ static void flower_print_ct_state(struct rtattr *flags_attr,
 					flower_ct_states[i].str);
 	}
 
-	print_string(PRINT_ANY, "ct_state", "\n  ct_state %s", out);
+	print_nl();
+	print_string(PRINT_ANY, "ct_state", "  ct_state %s", out);
 }
 
 static void flower_print_ct_label(struct rtattr *attr,
@@ -1907,7 +1914,8 @@ static void flower_print_ct_label(struct rtattr *attr,
 	}
 	*p = '\0';
 
-	print_string(PRINT_ANY, "ct_label", "\n  ct_label %s", out);
+	print_nl();
+	print_string(PRINT_ANY, "ct_label", "  ct_label %s", out);
 }
 
 static void flower_print_ct_zone(struct rtattr *attr,
@@ -1929,7 +1937,8 @@ static void flower_print_key_id(const char *name, struct rtattr *attr)
 	if (!attr)
 		return;
 
-	sprintf(namefrm,"\n  %s %%u", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%u", name);
 	print_uint(PRINT_ANY, name, namefrm, rta_getattr_be32(attr));
 }
 
@@ -1977,7 +1986,7 @@ static void flower_print_geneve_opts(const char *name, struct rtattr *attr,
 static void flower_print_geneve_parts(const char *name, struct rtattr *attr,
 				      char *key, char *mask)
 {
-	char *namefrm = "\n  geneve_opt %s";
+	char *namefrm = "  geneve_opt %s";
 	char *key_token, *mask_token, *out;
 	int len;
 
@@ -1995,6 +2004,7 @@ static void flower_print_geneve_parts(const char *name, struct rtattr *attr,
 	}
 
 	out[len - 1] = '\0';
+	print_nl();
 	print_string(PRINT_FP, name, namefrm, out);
 	free(out);
 }
@@ -2058,7 +2068,8 @@ static void flower_print_masked_u8(const char *name, struct rtattr *attr,
 	if (mask != UINT8_MAX)
 		sprintf(out + done, "/%d", mask);
 
-	sprintf(namefrm,"\n  %s %%s", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%s", name);
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 
@@ -2074,7 +2085,8 @@ static void flower_print_u32(const char *name, struct rtattr *attr)
 	if (!attr)
 		return;
 
-	sprintf(namefrm,"\n  %s %%u", name);
+	print_nl();
+	sprintf(namefrm, "  %s %%u", name);
 	print_uint(PRINT_ANY, name, namefrm, rta_getattr_u32(attr));
 }
 
@@ -2122,7 +2134,8 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	if (tb[TCA_FLOWER_INDEV]) {
 		struct rtattr *attr = tb[TCA_FLOWER_INDEV];
 
-		print_string(PRINT_ANY, "indev", "\n  indev %s",
+		print_nl();
+		print_string(PRINT_ANY, "indev", "  indev %s",
 			     rta_getattr_str(attr));
 	}
 
@@ -2131,14 +2144,16 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	if (tb[TCA_FLOWER_KEY_VLAN_ID]) {
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_VLAN_ID];
 
-		print_uint(PRINT_ANY, "vlan_id", "\n  vlan_id %u",
+		print_nl();
+		print_uint(PRINT_ANY, "vlan_id", "  vlan_id %u",
 			   rta_getattr_u16(attr));
 	}
 
 	if (tb[TCA_FLOWER_KEY_VLAN_PRIO]) {
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_VLAN_PRIO];
 
-		print_uint(PRINT_ANY, "vlan_prio", "\n  vlan_prio %d",
+		print_nl();
+		print_uint(PRINT_ANY, "vlan_prio", "  vlan_prio %d",
 			   rta_getattr_u8(attr));
 	}
 
@@ -2146,7 +2161,8 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		SPRINT_BUF(buf);
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_VLAN_ETH_TYPE];
 
-		print_string(PRINT_ANY, "vlan_ethtype", "\n  vlan_ethtype %s",
+		print_nl();
+		print_string(PRINT_ANY, "vlan_ethtype", "  vlan_ethtype %s",
 			     ll_proto_n2a(rta_getattr_u16(attr),
 			     buf, sizeof(buf)));
 	}
@@ -2154,14 +2170,16 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	if (tb[TCA_FLOWER_KEY_CVLAN_ID]) {
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_CVLAN_ID];
 
-		print_uint(PRINT_ANY, "cvlan_id", "\n  cvlan_id %u",
+		print_nl();
+		print_uint(PRINT_ANY, "cvlan_id", "  cvlan_id %u",
 			   rta_getattr_u16(attr));
 	}
 
 	if (tb[TCA_FLOWER_KEY_CVLAN_PRIO]) {
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_CVLAN_PRIO];
 
-		print_uint(PRINT_ANY, "cvlan_prio", "\n  cvlan_prio %d",
+		print_nl();
+		print_uint(PRINT_ANY, "cvlan_prio", "  cvlan_prio %d",
 			   rta_getattr_u8(attr));
 	}
 
@@ -2169,7 +2187,8 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		SPRINT_BUF(buf);
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_CVLAN_ETH_TYPE];
 
-		print_string(PRINT_ANY, "cvlan_ethtype", "\n  cvlan_ethtype %s",
+		print_nl();
+		print_string(PRINT_ANY, "cvlan_ethtype", "  cvlan_ethtype %s",
 			     ll_proto_n2a(rta_getattr_u16(attr),
 			     buf, sizeof(buf)));
 	}
@@ -2304,14 +2323,18 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 	if (tb[TCA_FLOWER_FLAGS]) {
 		__u32 flags = rta_getattr_u32(tb[TCA_FLOWER_FLAGS]);
 
-		if (flags & TCA_CLS_FLAGS_SKIP_HW)
-			print_bool(PRINT_ANY, "skip_hw", "\n  skip_hw", true);
-		if (flags & TCA_CLS_FLAGS_SKIP_SW)
-			print_bool(PRINT_ANY, "skip_sw", "\n  skip_sw", true);
-
+		if (flags & TCA_CLS_FLAGS_SKIP_HW) {
+			print_nl();
+			print_bool(PRINT_ANY, "skip_hw", "  skip_hw", true);
+		}
+		if (flags & TCA_CLS_FLAGS_SKIP_SW) {
+			print_nl();
+			print_bool(PRINT_ANY, "skip_sw", "  skip_sw", true);
+		}
 		//如果在hw中，则输出"in_hw"
 		if (flags & TCA_CLS_FLAGS_IN_HW) {
-			print_bool(PRINT_ANY, "in_hw", "\n  in_hw", true);
+			print_nl();
+			print_bool(PRINT_ANY, "in_hw", "  in_hw", true);
 
 			if (tb[TCA_FLOWER_IN_HW_COUNT]) {
 				__u32 count = rta_getattr_u32(tb[TCA_FLOWER_IN_HW_COUNT]);
@@ -2320,8 +2343,10 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 					   " in_hw_count %u", count);
 			}
 		}
-		else if (flags & TCA_CLS_FLAGS_NOT_IN_HW)
-			print_bool(PRINT_ANY, "not_in_hw", "\n  not_in_hw", true);
+		else if (flags & TCA_CLS_FLAGS_NOT_IN_HW) {
+			print_nl();
+			print_bool(PRINT_ANY, "not_in_hw", "  not_in_hw", true);
+		}
 	}
 
 	if (tb[TCA_FLOWER_ACT])

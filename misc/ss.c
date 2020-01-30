@@ -35,6 +35,7 @@
 #include "libnetlink.h"
 #include "namespace.h"
 #include "SNAPSHOT.h"
+#include "rt_names.h"
 
 #include <linux/tcp.h>
 #include <linux/sock_diag.h>
@@ -121,7 +122,6 @@ static int follow_events;
 static int sctp_ino;
 static int show_tipcinfo;
 static int show_tos;
-int numeric;
 int oneline;
 
 enum col_id {
@@ -1135,10 +1135,10 @@ static void buf_free_all(void)
 	buffer.chunks = 0;
 }
 
-/* Get current screen width, default to 80 columns if TIOCGWINSZ fails */
+/* Get current screen width, returns -1 if TIOCGWINSZ fails */
 static int render_screen_width(void)
 {
-	int width = 80;
+	int width = -1;
 
 	if (isatty(STDOUT_FILENO)) {
 		struct winsize w;
@@ -1159,9 +1159,15 @@ static int render_screen_width(void)
  */
 static void render_calc_width(void)
 {
-	int screen_width = render_screen_width();
+	int screen_width, first, len = 0, linecols = 0;
 	struct column *c, *eol = columns - 1;
-	int first, len = 0, linecols = 0;
+	bool compact_output = false;
+
+	screen_width = render_screen_width();
+	if (screen_width == -1) {
+		screen_width = INT_MAX;
+		compact_output = true;
+	}
 
 	/* First pass: set width for each column to measured content length */
 	for (first = 1, c = columns; c - columns < COL_MAX; c++) {
@@ -1181,6 +1187,11 @@ static void render_calc_width(void)
 
 		if (c->width)
 			first = 0;
+	}
+
+	if (compact_output) {
+		/* Compact output, skip extending columns. */
+		return;
 	}
 
 	/* Second pass: find out newlines and distribute available spacing */

@@ -1,13 +1,13 @@
 /*
- * json_print.c		"print regular or json output, based on json_writer".
- *
- *             This program is free software; you can redistribute it and/or
- *             modify it under the terms of the GNU General Public License
- *             as published by the Free Software Foundation; either version
- *             2 of the License, or (at your option) any later version.
- *
- * Authors:    Julien Fortin, <julien@cumulusnetworks.com>
- */
+* json_print.c		"print regular or json output, based on json_writer".
+*
+*             This program is free software; you can redistribute it and/or
+*             modify it under the terms of the GNU General Public License
+*             as published by the Free Software Foundation; either version
+*             2 of the License, or (at your option) any later version.
+*
+* Authors:    Julien Fortin, <julien@cumulusnetworks.com>
+*/
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,102 +20,124 @@ static json_writer_t *_jw;
 #define _IS_JSON_CONTEXT(type) ((type & PRINT_JSON || type & PRINT_ANY) && _jw)
 #define _IS_FP_CONTEXT(type) (!_jw && (type & PRINT_FP || type & PRINT_ANY))
 
+static void __new_json_obj(int json, bool have_array)
+{
+if (json) {
+	_jw = jsonw_new(stdout);
+	if (!_jw) {
+		perror("json object");
+		exit(1);
+	}
+	if (pretty)
+		jsonw_pretty(_jw, true);
+	if (have_array)
+		jsonw_start_array(_jw);
+}
+}
+
+static void __delete_json_obj(bool have_array)
+{
+if (_jw) {
+	if (have_array)
+		jsonw_end_array(_jw);
+	jsonw_destroy(&_jw);
+}
+}
+
 void new_json_obj(int json)
 {
-	if (json) {
-		_jw = jsonw_new(stdout);
-		if (!_jw) {
-			perror("json object");
-			exit(1);
-		}
-		if (pretty)
-			jsonw_pretty(_jw, true);
-		jsonw_start_array(_jw);
-	}
+__new_json_obj(json, true);
 }
 
 void delete_json_obj(void)
 {
-	if (_jw) {
-		jsonw_end_array(_jw);
-		jsonw_destroy(&_jw);
-	}
+__delete_json_obj(true);
+}
+
+void new_json_obj_plain(int json)
+{
+__new_json_obj(json, false);
+}
+
+void delete_json_obj_plain(void)
+{
+__delete_json_obj(false);
 }
 
 bool is_json_context(void)
 {
-	return _jw != NULL;
+return _jw != NULL;
 }
 
 json_writer_t *get_json_writer(void)
 {
-	return _jw;
+return _jw;
 }
 
 void open_json_object(const char *str)
 {
-	if (_IS_JSON_CONTEXT(PRINT_JSON)) {
-		if (str)
-			jsonw_name(_jw, str);
-		jsonw_start_object(_jw);
-	}
+if (_IS_JSON_CONTEXT(PRINT_JSON)) {
+	if (str)
+		jsonw_name(_jw, str);
+	jsonw_start_object(_jw);
+}
 }
 
 void close_json_object(void)
 {
-	if (_IS_JSON_CONTEXT(PRINT_JSON))
-		jsonw_end_object(_jw);
+if (_IS_JSON_CONTEXT(PRINT_JSON))
+	jsonw_end_object(_jw);
 }
 
 /*
- * Start json array or string array using
- * the provided string as json key (if not null)
- * or as array delimiter in non-json context.
- */
+* Start json array or string array using
+* the provided string as json key (if not null)
+* or as array delimiter in non-json context.
+*/
 void open_json_array(enum output_type type, const char *str)
 {
-	if (_IS_JSON_CONTEXT(type)) {
-		if (str)
-			jsonw_name(_jw, str);
-		jsonw_start_array(_jw);
-	} else if (_IS_FP_CONTEXT(type)) {
-		printf("%s", str);
-	}
+if (_IS_JSON_CONTEXT(type)) {
+	if (str)
+		jsonw_name(_jw, str);
+	jsonw_start_array(_jw);
+} else if (_IS_FP_CONTEXT(type)) {
+	printf("%s", str);
+}
 }
 
 /*
- * End json array or string array
- */
+* End json array or string array
+*/
 void close_json_array(enum output_type type, const char *str)
 {
-	if (_IS_JSON_CONTEXT(type)) {
-		jsonw_end_array(_jw);
-	} else if (_IS_FP_CONTEXT(type)) {
-		printf("%s", str);
-	}
+if (_IS_JSON_CONTEXT(type)) {
+	jsonw_end_array(_jw);
+} else if (_IS_FP_CONTEXT(type)) {
+	printf("%s", str);
+}
 }
 
 /*
- * pre-processor directive to generate similar
- * functions handling different types
- */
+* pre-processor directive to generate similar
+* functions handling different types
+*/
 #define _PRINT_FUNC(type_name, type)					\
-	__attribute__((format(printf, 4, 0)))				\
-	void print_color_##type_name(enum output_type t,		\
-				     enum color_attr color,		\
-				     const char *key,			\
-				     const char *fmt,			\
-				     type value)			\
-	{								\
-		if (_IS_JSON_CONTEXT(t)) {				\
-			if (!key)					\
-				jsonw_##type_name(_jw, value);		\
-			else						\
-				jsonw_##type_name##_field(_jw, key, value); \
-		} else if (_IS_FP_CONTEXT(t)) {				\
-			color_fprintf(stdout, color, fmt, value);          \
-		}							\
-	}
+__attribute__((format(printf, 4, 0)))				\
+void print_color_##type_name(enum output_type t,		\
+			     enum color_attr color,		\
+			     const char *key,			\
+			     const char *fmt,			\
+			     type value)			\
+{								\
+	if (_IS_JSON_CONTEXT(t)) {				\
+		if (!key)					\
+			jsonw_##type_name(_jw, value);		\
+		else						\
+			jsonw_##type_name##_field(_jw, key, value); \
+	} else if (_IS_FP_CONTEXT(t)) {				\
+		color_fprintf(stdout, color, fmt, value);          \
+	}							\
+}
 _PRINT_FUNC(int, int);
 _PRINT_FUNC(s64, int64_t);
 _PRINT_FUNC(hhu, unsigned char);
@@ -126,6 +148,19 @@ _PRINT_FUNC(luint, unsigned long);
 _PRINT_FUNC(lluint, unsigned long long);
 _PRINT_FUNC(float, double);
 #undef _PRINT_FUNC
+
+#define _PRINT_NAME_VALUE_FUNC(type_name, type, format_char)		 \
+	void print_##type_name##_name_value(const char *name, type value)\
+	{								 \
+		SPRINT_BUF(format);					 \
+									 \
+		snprintf(format, SPRINT_BSIZE,				 \
+			 "%s %%"#format_char, name);			 \
+		print_##type_name(PRINT_ANY, name, format, value);	 \
+	}
+_PRINT_NAME_VALUE_FUNC(uint, unsigned int, u);
+_PRINT_NAME_VALUE_FUNC(string, const char*, s);
+#undef _PRINT_NAME_VALUE_FUNC
 
 //字符串显示
 void print_color_string(enum output_type type,

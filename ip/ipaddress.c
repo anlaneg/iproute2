@@ -1011,6 +1011,24 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 						       ifi->ifi_type,
 						       b1, sizeof(b1)));
 		}
+		if (tb[IFLA_PERM_ADDRESS]) {
+			unsigned int len = RTA_PAYLOAD(tb[IFLA_PERM_ADDRESS]);
+
+			if (!tb[IFLA_ADDRESS] ||
+			    RTA_PAYLOAD(tb[IFLA_ADDRESS]) != len ||
+			    memcmp(RTA_DATA(tb[IFLA_PERM_ADDRESS]),
+				   RTA_DATA(tb[IFLA_ADDRESS]), len)) {
+				print_string(PRINT_FP, NULL, " permaddr ", NULL);
+				print_color_string(PRINT_ANY,
+						   COLOR_MAC,
+						   "permaddr",
+						   "%s",
+						   ll_addr_n2a(RTA_DATA(tb[IFLA_PERM_ADDRESS]),
+							       RTA_PAYLOAD(tb[IFLA_PERM_ADDRESS]),
+							       ifi->ifi_type,
+							       b1, sizeof(b1)));
+			}
+		}
 	}
 
 	if (tb[IFLA_LINK_NETNSID]) {
@@ -1633,7 +1651,8 @@ static int show_handler(struct rtnl_ctrl_data *ctrl,
 	struct ifaddrmsg *ifa = NLMSG_DATA(n);
 
 	open_json_object(NULL);
-	print_int(PRINT_ANY, "index", "if%d:\n", ifa->ifa_index);
+	print_int(PRINT_ANY, "index", "if%d:", ifa->ifa_index);
+	print_nl();
 	print_addrinfo(n, stdout);
 	close_json_object();
 	return 0;
