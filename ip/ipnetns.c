@@ -853,7 +853,7 @@ static int netns_add(int argc, char **argv, bool create)
 	}
 
 	/* Create the filesystem state */
-	//打开指定文件
+	//创建指定文件
 	fd = open(netns_path, O_RDONLY|O_CREAT|O_EXCL, 0);
 	if (fd < 0) {
 		fprintf(stderr, "Cannot create namespace file \"%s\": %s\n",
@@ -876,6 +876,7 @@ static int netns_add(int argc, char **argv, bool create)
 	}
 
 	/* Bind the netns last so I can watch for it */
+	//将/proc/%d/ns/net 与 netns_path相关联，以便创建出我们可看到的netns
 	if (mount(proc_path, netns_path, "none", MS_BIND, NULL) < 0) {
 		fprintf(stderr, "Bind %s -> %s failed: %s\n",
 			proc_path, netns_path, strerror(errno));
