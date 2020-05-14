@@ -118,6 +118,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 			}
 			req.t.tcm_parent = TC_H_ROOT;
 		} else if (strcmp(*argv, "ingress") == 0) {
+		    //在ingress点上添加filter
 			if (req.t.tcm_parent) {
 				fprintf(stderr,
 					"Error: \"ingress\" is duplicate parent ID\n");
@@ -144,6 +145,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("Invalid parent ID", *argv);
 			req.t.tcm_parent = handle;
 		} else if (strcmp(*argv, "handle") == 0) {
+		    //规则对应的唯一handle
 			NEXT_ARG();
 			if (fhandle)
 				duparg("handle", *argv);
@@ -218,7 +220,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 	}
 
 	if (q) {
-		//解析选项配置
+		//解析非内置选项配置
 		if (q->parse_fopt(q, fhandle, argc, argv, &req.n))
 			return 1;
 	} else {

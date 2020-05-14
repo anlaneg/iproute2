@@ -1,4 +1,4 @@
-//*帧类型*/*
+/*
  * f_flower.c		Flower Classifier
  *
  *		This program is free software; you can distribute it and/or

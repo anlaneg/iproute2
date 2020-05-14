@@ -22,6 +22,7 @@ static void explain(void)
 	fprintf(stderr, "                  [ action ACTION_SPEC ]\n");
 }
 
+//解析cgroup相关的参数
 static int cgroup_parse_opt(struct filter_util *qu, char *handle,
 			   int argc, char **argv, struct nlmsghdr *n)
 {
@@ -30,6 +31,7 @@ static int cgroup_parse_opt(struct filter_util *qu, char *handle,
 	long h = 0;
 
 	if (handle) {
+	    /*如果指定了handle，则将其转换为整数*/
 		h = strtol(handle, NULL, 0);
 		if (h == LONG_MIN || h == LONG_MAX) {
 			fprintf(stderr, "Illegal handle \"%s\", must be numeric.\n",
@@ -40,12 +42,14 @@ static int cgroup_parse_opt(struct filter_util *qu, char *handle,
 
 	t->tcm_handle = h;
 
+	//添加options
 	tail = (struct rtattr *)(((void *)n)+NLMSG_ALIGN(n->nlmsg_len));
 	addattr_l(n, MAX_MSG, TCA_OPTIONS, NULL, 0);
 
 	while (argc > 0) {
 		if (matches(*argv, "match") == 0) {
 			NEXT_ARG();
+			//match字段解析
 			if (parse_ematch(&argc, &argv, TCA_CGROUP_EMATCHES, n)) {
 				fprintf(stderr, "Illegal \"ematch\"\n");
 				return -1;
@@ -53,6 +57,7 @@ static int cgroup_parse_opt(struct filter_util *qu, char *handle,
 			continue;
 		} else if (matches(*argv, "action") == 0) {
 			NEXT_ARG();
+			//action字段解析
 			if (parse_action(&argc, &argv, TCA_CGROUP_ACT, n)) {
 				fprintf(stderr, "Illegal \"action\"\n");
 				return -1;
@@ -61,6 +66,7 @@ static int cgroup_parse_opt(struct filter_util *qu, char *handle,
 
 		} else if (matches(*argv, "police") == 0) {
 			NEXT_ARG();
+			//police字段解析
 			if (parse_police(&argc, &argv, TCA_CGROUP_POLICE, n)) {
 				fprintf(stderr, "Illegal \"police\"\n");
 				return -1;
@@ -107,6 +113,7 @@ static int cgroup_print_opt(struct filter_util *qu, FILE *f,
 	return 0;
 }
 
+//cgroup相关的filter
 struct filter_util cgroup_filter_util = {
 	.id = "cgroup",
 	.parse_fopt = cgroup_parse_opt,

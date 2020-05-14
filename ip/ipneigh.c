@@ -137,15 +137,17 @@ static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 				invarg("nud state is bad", *argv);
 			req.ndm.ndm_state = state;
 		} else if (matches(*argv, "proxy") == 0) {
+		    /*指明要做arp proxy的地址*/
 			NEXT_ARG();
 			if (matches(*argv, "help") == 0)
 				usage();
 			if (dst_ok)
 				duparg("address", *argv);
+			/*获取要代理邻居地址ipv4/ipv6*/
 			get_addr(&dst, *argv, preferred_family);
 			dst_ok = 1;
 			dev_ok = 1;
-			req.ndm.ndm_flags |= NTF_PROXY;
+			req.ndm.ndm_flags |= NTF_PROXY;/*指明为代理地址*/
 		} else if (strcmp(*argv, "router") == 0) {
 			req.ndm.ndm_flags |= NTF_ROUTER;
 		} else if (matches(*argv, "extern_learn") == 0) {
@@ -180,6 +182,8 @@ static int ipneigh_modify(int cmd, int flags, int argc, char **argv)
 		fprintf(stderr, "Device and destination are required arguments.\n");
 		exit(-1);
 	}
+
+	/*填写目的地址*/
 	req.ndm.ndm_family = dst.family;
 	if (addattr_l(&req.n, sizeof(req), NDA_DST, &dst.data, dst.bytelen) < 0)
 		return -1;
@@ -509,7 +513,7 @@ static int do_show_or_flush(int argc, char **argv, int flush)
 				state = 0x100;
 			filter.state |= state;
 		} else if (strcmp(*argv, "proxy") == 0) {
-			filter.ndm_flags = NTF_PROXY;
+			filter.ndm_flags = NTF_PROXY;/*执行要进行邻居表项代理*/
 		} else if (matches(*argv, "protocol") == 0) {
 			__u32 prot;
 
@@ -629,9 +633,11 @@ static int ipneigh_get(int argc, char **argv)
 				usage();
 			if (dst_ok)
 				duparg("address", *argv);
+			//取代理地址
 			get_addr(&dst, *argv, preferred_family);
 			dst_ok = 1;
 			dev_ok = 1;
+			/*指明要进行领居表项代理*/
 			req.ndm.ndm_flags |= NTF_PROXY;
 		} else {
 			if (strcmp(*argv, "to") == 0)

@@ -62,7 +62,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
 		.n.nlmsg_flags = NLM_F_REQUEST | flags,
-		.n.nlmsg_type = cmd,
+		.n.nlmsg_type = cmd,/*针对qdisc的操作命令*/
 		.t.tcm_family = AF_UNSPEC,
 	};
 	__u32 ingress_block = 0;
@@ -104,7 +104,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG_FWD();
 			break;
 		} else if (strcmp(*argv, "ingress") == 0) {
-			//指定采用ingress方向
+			//指定采用ingress类型队列
 			if (req.t.tcm_parent) {
 				fprintf(stderr, "Error: \"ingress\" is a duplicate parent ID\n");
 				return -1;
@@ -117,7 +117,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG_FWD();
 			break;
 		} else if (strcmp(*argv, "parent") == 0) {
-			//指定父队列为handle
+			//指定父队列handle
 			__u32 handle;
 
 			NEXT_ARG();
