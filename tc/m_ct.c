@@ -48,8 +48,14 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 	ret = get_addr(&addr, addr1, AF_UNSPEC);
 	if (ret)
 		return ret;
-	attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MIN :
-					TCA_CT_NAT_IPV6_MIN;
+	if (addr.family == AF_INET)
+	{
+		attr = TCA_CONNTRACK_NAT_IP_MIN;
+	}
+	else
+	{
+		return ret;
+	}
 	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);
 
 	if (addr2) {
@@ -57,8 +63,14 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 		if (ret)
 			return ret;
 	}
-	attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MAX :
-					TCA_CT_NAT_IPV6_MAX;
+	if (addr.family == AF_INET)
+	{
+		attr =TCA_CONNTRACK_NAT_IP_MAX;
+	}
+	else
+	{
+		return ret;
+	}
 	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);
 
 	return 0;
@@ -83,83 +95,86 @@ static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
 	ret = get_be16(&port, port1, 10);
 	if (ret)
 		return -1;
-	addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MIN, port);
+	addattr16(n, MAX_MSG, TCA_CONNTRACK_NAT_PORT_MIN, port);
 
 	if (port2) {
 		ret = get_be16(&port, port2, 10);
 		if (ret)
 			return -1;
 	}
-	addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MAX, port);
+	addattr16(n, MAX_MSG, TCA_CONNTRACK_NAT_PORT_MAX, port);
 
 	return 0;
 }
 
-
-static int ct_parse_u16(char *str, int value_type, int mask_type,
-			struct nlmsghdr *n)
+static int ct_parse_u16(char *str,__u16 *value,__u16 *mask)
+//static int ct_parse_u16(char *str, int value_type, int mask_type,
+//			struct nlmsghdr *n)
 {
-	__u16 value, mask;
+	//__u16 value, mask;
 	char *slash = 0;
 
-	if (mask_type != TCA_CT_UNSPEC) {
+	if (mask != NULL) {
 		slash = strchr(str, '/');
 		if (slash)
 			*slash = '\0';
 	}
 
-	if (get_u16(&value, str, 0))
+	if (get_u16(value, str, 0))
 		return -1;
 
 	if (slash) {
-		if (get_u16(&mask, slash + 1, 0))
+		if (get_u16(mask, slash + 1, 0))
 			return -1;
 	} else {
-		mask = UINT16_MAX;
+		if(mask) {
+			*mask = UINT16_MAX;
+		}
 	}
 
-	addattr16(n, MAX_MSG, value_type, value);
-	if (mask_type != TCA_CT_UNSPEC)
-		addattr16(n, MAX_MSG, mask_type, mask);
+	//addattr16(n, MAX_MSG, value_type, value);
+	//if (mask_type != TCA_CONNTRACK_UNSPEC)
+	//	addattr16(n, MAX_MSG, mask_type, mask);
 
 	return 0;
 }
 
-static int ct_parse_u32(char *str, int value_type, int mask_type,
-			struct nlmsghdr *n)
+static int ct_parse_u32(char *str, __u32  *value, __u32 *mask)
+//static int ct_parse_u32(char *str, int value_type, int mask_type,
+//			struct nlmsghdr *n)
 {
-	__u32 value, mask;
+	//__u32 value, mask;
 	char *slash;
 
 	slash = strchr(str, '/');
 	if (slash)
 		*slash = '\0';
 
-	if (get_u32(&value, str, 0))
+	if (get_u32(value, str, 0))
 		return -1;
 
 	if (slash) {
-		if (get_u32(&mask, slash + 1, 0))
+		if (get_u32(mask, slash + 1, 0))
 			return -1;
 	} else {
-		mask = UINT32_MAX;
+		*mask = UINT32_MAX;
 	}
 
-	addattr32(n, MAX_MSG, value_type, value);
-	addattr32(n, MAX_MSG, mask_type, mask);
+	//addattr32(n, MAX_MSG, value_type, value);
+	//addattr32(n, MAX_MSG, mask_type, mask);
 
 	return 0;
 }
 
-static int ct_parse_mark(char *str, struct nlmsghdr *n)
+static int ct_parse_mark(char *str, struct tc_conntrack* sel)
 {
-	return ct_parse_u32(str, TCA_CT_MARK, TCA_CT_MARK_MASK, n);
+	return ct_parse_u32(str, &sel->mark,&sel->mark_mask);
 }
 
-static int ct_parse_labels(char *str, struct nlmsghdr *n)
+static int ct_parse_labels(char *str, struct tc_conntrack* sel)
 {
 #define LABELS_SIZE	16
-	uint8_t labels[LABELS_SIZE], lmask[LABELS_SIZE];
+	//uint8_t labels[LABELS_SIZE], lmask[LABELS_SIZE];
 	char *slash, *mask = NULL;
 	size_t slen, slen_mask = 0;
 
@@ -180,18 +195,18 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 		invarg(errmsg, str);
 	}
 
-	if (hex2mem(str, labels, slen/2) < 0)
+	if (hex2mem(str, (uint8_t*)&(sel->labels), slen/2) < 0)
 		invarg("ct: labels must be a hex string\n", str);
-	addattr_l(n, MAX_MSG, TCA_CT_LABELS, labels, slen/2);
+	//addattr_l(n, MAX_MSG, TCA_CT_LABELS, labels, slen/2);
 
 	if (mask) {
-		if (hex2mem(mask, lmask, slen_mask/2) < 0)
+		if (hex2mem(mask, (uint8_t*)&(sel->labels_mask), slen_mask/2) < 0)
 			invarg("ct: labels mask must be a hex string\n", mask);
 	} else {
-		memset(lmask, 0xff, sizeof(lmask));
-		slen_mask = sizeof(lmask)*2;
+		memset(&(sel->labels_mask), 0xff, sizeof(sel->labels_mask));
+		//slen_mask = sizeof(sel->labels_mask)*2;
 	}
-	addattr_l(n, MAX_MSG, TCA_CT_LABELS_MASK, lmask, slen_mask/2);
+	//addattr_l(n, MAX_MSG, TCA_CT_LABELS_MASK, lmask, slen_mask/2);
 
 	return 0;
 }
@@ -200,11 +215,12 @@ static int
 parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		struct nlmsghdr *n)
 {
-	struct tc_ct sel = {};
+	//struct tc_ct sel = {};
+	struct tc_conntrack sel={};
 	char **argv = *argv_p;
 	struct rtattr *tail;
 	int argc = *argc_p;
-	int ct_action = 0;
+	//int ct_action = 0;
 	int ret;
 
 	tail = addattr_nest(n, MAX_MSG, tca_id);
@@ -216,19 +232,21 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		if (matches(*argv, "zone") == 0) {
 			NEXT_ARG();
 
-			if (ct_parse_u16(*argv,
-					 TCA_CT_ZONE, TCA_CT_UNSPEC, n)) {
+			if (ct_parse_u16(*argv,&sel.zone,NULL)) {
 				fprintf(stderr, "ct: Illegal \"zone\"\n");
 				return -1;
 			}
 		} else if (matches(*argv, "nat") == 0) {
-			ct_action |= TCA_CT_ACT_NAT;
+			addattr(n, MAX_MSG,TCA_CONNTRACK_NAT);
+			//ct_action |= TCA_CT_ACT_NAT;
 
 			NEXT_ARG();
 			if (matches(*argv, "src") == 0)
-				ct_action |= TCA_CT_ACT_NAT_SRC;
+				//ct_action |= TCA_CT_ACT_NAT_SRC;
+				addattr(n, MAX_MSG,TCA_CONNTRACK_NAT_SRC);
 			else if (matches(*argv, "dst") == 0)
-				ct_action |= TCA_CT_ACT_NAT_DST;
+				//ct_action |= TCA_CT_ACT_NAT_DST;
+				addattr(n, MAX_MSG,TCA_CONNTRACK_NAT_DST);
 			else
 				continue;
 
@@ -254,11 +272,15 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				return -1;
 			}
 		} else if (matches(*argv, "clear") == 0) {
-			ct_action |= TCA_CT_ACT_CLEAR;
+			sel.clear = 1;
+			//ct_action |= TCA_CT_ACT_CLEAR;
 		} else if (matches(*argv, "commit") == 0) {
-			ct_action |= TCA_CT_ACT_COMMIT;
+			sel.commit = 1;
+			//ct_action |= TCA_CT_ACT_COMMIT;
 		} else if (matches(*argv, "force") == 0) {
-			ct_action |= TCA_CT_ACT_FORCE;
+			//ct_action |= TCA_CT_ACT_FORCE;
+			fprintf(stderr, "ct: unspport 'force'\n");
+			return -1;
 		} else if (matches(*argv, "index") == 0) {
 			NEXT_ARG();
 			if (get_u32(&sel.index, *argv, 10)) {
@@ -268,7 +290,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		} else if (matches(*argv, "mark") == 0) {
 			NEXT_ARG();
 
-			ret = ct_parse_mark(*argv, n);
+			ret = ct_parse_mark(*argv, &sel);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"mark\"\n");
 				return -1;
@@ -276,7 +298,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		} else if (matches(*argv, "label") == 0) {
 			NEXT_ARG();
 
-			ret = ct_parse_labels(*argv, n);
+			ret = ct_parse_labels(*argv, &sel);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"label\"\n");
 				return -1;
@@ -289,6 +311,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		NEXT_ARG_FWD();
 	}
 
+#if 0
 	if (ct_action & TCA_CT_ACT_CLEAR &&
 	    ct_action & ~TCA_CT_ACT_CLEAR) {
 		fprintf(stderr, "ct: clear can only be used alone\n");
@@ -313,12 +336,14 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		fprintf(stderr, "ct: src or dst is only valid if commit is set\n");
 		return -1;
 	}
+#endif
 
 	parse_action_control_dflt(&argc, &argv, &sel.action, false,
 				  TC_ACT_PIPE);
 
-	addattr16(n, MAX_MSG, TCA_CT_ACTION, ct_action);
-	addattr_l(n, MAX_MSG, TCA_CT_PARMS, &sel, sizeof(sel));
+
+	//addattr16(n, MAX_MSG, TCA_CT_ACTION, ct_action);
+	addattr_l(n, MAX_MSG, TCA_CONNTRACK_PARMS, &sel, sizeof(sel));
 	addattr_nest_end(n, tail);
 
 	*argc_p = argc;
@@ -361,39 +386,40 @@ static void ct_print_nat(int ct_action, struct rtattr **tb)
 	char out[256] = "";
 	bool nat;
 
-	if (!(ct_action & TCA_CT_ACT_NAT))
+	if (!tb[TCA_CONNTRACK_NAT])
 		return;
 
-	if (ct_action & TCA_CT_ACT_NAT_SRC) {
+	if (tb[TCA_CONNTRACK_NAT_SRC]) {
 		nat = true;
 		done += sprintf(out + done, "src");
-	} else if (ct_action & TCA_CT_ACT_NAT_DST) {
+	} 
+	if (tb[TCA_CONNTRACK_NAT_DST]) {
 		nat = true;
 		done += sprintf(out + done, "dst");
 	}
 
 	if (nat) {
 		done += ct_sprint_ip_addr(out + done, " addr ",
-					  tb[TCA_CT_NAT_IPV4_MIN]);
-		done += ct_sprint_ip_addr(out + done, " addr ",
-					  tb[TCA_CT_NAT_IPV6_MIN]);
-		if (tb[TCA_CT_NAT_IPV4_MAX] &&
-		    memcmp(RTA_DATA(tb[TCA_CT_NAT_IPV4_MIN]),
-			   RTA_DATA(tb[TCA_CT_NAT_IPV4_MAX]), 4))
+					  tb[TCA_CONNTRACK_NAT_IP_MIN]);
+		//done += ct_sprint_ip_addr(out + done, " addr ",
+		//			  tb[TCA_CT_NAT_IPV6_MIN]);
+		if (tb[TCA_CONNTRACK_NAT_IP_MAX] &&
+		    memcmp(RTA_DATA(tb[TCA_CONNTRACK_NAT_IP_MIN]),
+			   RTA_DATA(tb[TCA_CONNTRACK_NAT_IP_MAX]), 4))
 			done += ct_sprint_ip_addr(out + done, "-",
-						  tb[TCA_CT_NAT_IPV4_MAX]);
-		else if (tb[TCA_CT_NAT_IPV6_MAX] &&
-			    memcmp(RTA_DATA(tb[TCA_CT_NAT_IPV6_MIN]),
-				   RTA_DATA(tb[TCA_CT_NAT_IPV6_MAX]), 16))
-			done += ct_sprint_ip_addr(out + done, "-",
-						  tb[TCA_CT_NAT_IPV6_MAX]);
+						  tb[TCA_CONNTRACK_NAT_IP_MAX]);
+		//else if (tb[TCA_CT_NAT_IPV6_MAX] &&
+		//	    memcmp(RTA_DATA(tb[TCA_CT_NAT_IPV6_MIN]),
+		//		   RTA_DATA(tb[TCA_CT_NAT_IPV6_MAX]), 16))
+		//	done += ct_sprint_ip_addr(out + done, "-",
+		//				  tb[TCA_CT_NAT_IPV6_MAX]);
 		done += ct_sprint_port(out + done, " port ",
-				       tb[TCA_CT_NAT_PORT_MIN]);
-		if (tb[TCA_CT_NAT_PORT_MAX] &&
-		    memcmp(RTA_DATA(tb[TCA_CT_NAT_PORT_MIN]),
-			   RTA_DATA(tb[TCA_CT_NAT_PORT_MAX]), 2))
+				       tb[TCA_CONNTRACK_NAT_PORT_MIN]);
+		if (tb[TCA_CONNTRACK_NAT_PORT_MAX] &&
+		    memcmp(RTA_DATA(tb[TCA_CONNTRACK_NAT_PORT_MIN]),
+			   RTA_DATA(tb[TCA_CONNTRACK_NAT_PORT_MAX]), 2))
 			done += ct_sprint_port(out + done, "-",
-					       tb[TCA_CT_NAT_PORT_MAX]);
+					       tb[TCA_CONNTRACK_NAT_PORT_MAX]);
 	}
 
 	if (done)
@@ -436,39 +462,90 @@ static void ct_print_labels(struct rtattr *attr,
 	print_string(PRINT_ANY, "label", " label %s", out);
 }
 
+static struct rtattr* build_temp_rtattr(int type,const void*data,int alen)
+{
+	struct rtattr*buffer;
+	int len  = RTA_LENGTH(alen);
+
+	if(!(buffer=calloc(1,RTA_ALIGN(len))))
+	{
+		return NULL;
+	}
+	buffer->rta_type=type;
+	buffer->rta_len=len;
+	if (alen) {
+		memcpy(RTA_DATA(buffer), data, alen);
+	}
+
+	return buffer;
+}
+
+static void free_temp_rtattr(struct rtattr*value,struct rtattr*mask)
+{
+	if(value)
+		free(value);
+	if(mask)
+		free(mask);
+}
+static void ct_print_conntrack(struct tc_conntrack*tc_ct)
+{
+	struct rtattr* value;
+	struct rtattr* mask;
+
+	value=build_temp_rtattr(TCA_CONNTRACK_UNSPEC,&tc_ct->mark,sizeof(tc_ct->mark));
+	mask =build_temp_rtattr(TCA_CONNTRACK_UNSPEC,&tc_ct->mark_mask,sizeof(tc_ct->mark_mask));
+	if(value && mask) {
+		print_masked_u32("mark", value, mask, false);
+	}
+	free_temp_rtattr(value,mask);
+
+
+	value=build_temp_rtattr(TCA_CONNTRACK_UNSPEC,&tc_ct->zone,sizeof(tc_ct->zone));
+	print_masked_u16("zone", value, NULL, false);
+	free_temp_rtattr(value,NULL);
+
+
+	value=build_temp_rtattr(TCA_CONNTRACK_UNSPEC,&tc_ct->labels,sizeof(tc_ct->labels));
+	mask =build_temp_rtattr(TCA_CONNTRACK_UNSPEC,&tc_ct->labels_mask,sizeof(tc_ct->labels_mask));
+	ct_print_labels(value, mask);
+	free_temp_rtattr(value,mask);
+
+}
+
+
 static int print_ct(struct action_util *au, FILE *f, struct rtattr *arg)
 {
-	struct rtattr *tb[TCA_CT_MAX + 1];
-	const char *commit;
-	struct tc_ct *p;
+	struct rtattr *tb[TCA_CONNTRACK_MAX + 1];
+	//struct rtattr *value,*mask;
+	//const char *commit;
+	struct tc_conntrack *p;
 	int ct_action = 0;
 
 	if (arg == NULL)
 		return -1;
 
-	parse_rtattr_nested(tb, TCA_CT_MAX, arg);
-	if (tb[TCA_CT_PARMS] == NULL) {
+	parse_rtattr_nested(tb, TCA_CONNTRACK_MAX, arg);
+	if (tb[TCA_CONNTRACK_PARMS] == NULL) {
 		print_string(PRINT_FP, NULL, "%s", "[NULL ct parameters]");
 		return -1;
 	}
 
-	p = RTA_DATA(tb[TCA_CT_PARMS]);
+	p = RTA_DATA(tb[TCA_CONNTRACK_PARMS]);
 
 	print_string(PRINT_ANY, "kind", "%s", "ct");
-
-	if (tb[TCA_CT_ACTION])
-		ct_action = rta_getattr_u16(tb[TCA_CT_ACTION]);
-	if (ct_action & TCA_CT_ACT_COMMIT) {
-		commit = ct_action & TCA_CT_ACT_FORCE ?
-			 "commit force" : "commit";
-		print_string(PRINT_ANY, "action", " %s", commit);
-	} else if (ct_action & TCA_CT_ACT_CLEAR) {
+	//if (tb[TCA_CT_ACTION])
+        //	ct_action = rta_getattr_u16(tb[TCA_CT_ACTION]);
+	if (p->commit) {
+		print_string(PRINT_ANY, "action", " %s", "commit");
+	} 
+	if (p->clear) {
 		print_string(PRINT_ANY, "action", " %s", "clear");
 	}
 
-	print_masked_u32("mark", tb[TCA_CT_MARK], tb[TCA_CT_MARK_MASK], false);
-	print_masked_u16("zone", tb[TCA_CT_ZONE], NULL, false);
-	ct_print_labels(tb[TCA_CT_LABELS], tb[TCA_CT_LABELS_MASK]);
+	//print_masked_u32("mark", tb[TCA_CT_MARK], tb[TCA_CT_MARK_MASK], false);
+	//print_masked_u16("zone", tb[TCA_CT_ZONE], NULL, false);
+	//ct_print_labels(tb[TCA_CT_LABELS], tb[TCA_CT_LABELS_MASK]);
+	ct_print_conntrack(p);
 	ct_print_nat(ct_action, tb);
 
 	print_action_control(f, " ", p->action, "");
@@ -478,8 +555,8 @@ static int print_ct(struct action_util *au, FILE *f, struct rtattr *arg)
 	print_int(PRINT_ANY, "bind", " bind %d", p->bindcnt);
 
 	if (show_stats) {
-		if (tb[TCA_CT_TM]) {
-			struct tcf_t *tm = RTA_DATA(tb[TCA_CT_TM]);
+		if (tb[TCA_CONNTRACK_TM]) {
+			struct tcf_t *tm = RTA_DATA(tb[TCA_CONNTRACK_TM]);
 
 			print_tm(f, tm);
 		}
