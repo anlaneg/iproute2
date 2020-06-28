@@ -92,6 +92,7 @@ static inline bool is_addrtype_inet_unspec(const inet_prefix *p)
 	return (p->flags & ADDRTYPE_INET_UNSPEC) == ADDRTYPE_INET_UNSPEC;
 }
 
+//是否为组播地址
 static inline bool is_addrtype_inet_multi(const inet_prefix *p)
 {
 	return (p->flags & ADDRTYPE_INET_MULTI) == ADDRTYPE_INET_MULTI;
@@ -102,6 +103,7 @@ static inline bool is_addrtype_inet_not_unspec(const inet_prefix *p)
 	return (p->flags & ADDRTYPE_INET_UNSPEC) == ADDRTYPE_INET;
 }
 
+//是否为非组播地址
 static inline bool is_addrtype_inet_not_multi(const inet_prefix *p)
 {
 	return (p->flags & ADDRTYPE_INET_MULTI) == ADDRTYPE_INET;

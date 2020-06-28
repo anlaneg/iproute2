@@ -21,6 +21,7 @@
 #include "utils.h"
 #include "ip_common.h"
 
+//检查是否有type标记，如有，返回true
 #define VXLAN_ATTRSET(attrs, type) (((attrs) & (1L << (type))) != 0)
 
 static void print_explain(FILE *f)
@@ -66,6 +67,7 @@ static void explain(void)
 static void check_duparg(__u64 *attrs, int type, const char *key,
 			 const char *argv)
 {
+    //如果没有type标记 ，则为其打上此标记，否则报错
 	if (!VXLAN_ATTRSET(*attrs, type)) {
 		*attrs |= (1L << type);
 		return;
@@ -73,12 +75,13 @@ static void check_duparg(__u64 *attrs, int type, const char *key,
 	duparg2(key, argv);
 }
 
+//vxlan配置命令解析
 static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			  struct nlmsghdr *n)
 {
 	inet_prefix saddr, daddr;
-	__u32 vni = 0;
-	__u8 learning = 1;
+	__u32 vni = 0;/*记录vni取值*/
+	__u8 learning = 1;/*默认开启vxlan fdb学习*/
 	__u16 dstport = 0;
 	__u8 metadata = 0;
 	__u64 attrs = 0;
@@ -94,6 +97,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 	while (argc > 0) {
 		if (!matches(*argv, "id") ||
 		    !matches(*argv, "vni")) {
+		    //解析vni取值
 			/* We will add ID attribute outside of the loop since we
 			 * need to consider metadata information as well.
 			 */
@@ -111,9 +115,11 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			NEXT_ARG();
 			check_duparg(&attrs, IFLA_VXLAN_GROUP, "group", *argv);
 			get_addr(&daddr, *argv, saddr.family);
+			/*group地址必须为组播目的地址*/
 			if (!is_addrtype_inet_multi(&daddr))
 				invarg("invalid group address", *argv);
 		} else if (!matches(*argv, "remote")) {
+		    //配置远端地址，必须为单播地址
 			if (is_addrtype_inet_multi(&daddr)) {
 				fprintf(stderr, "vxlan: both group and remote");
 				fprintf(stderr, " cannot be specified\n");
@@ -125,12 +131,14 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			if (!is_addrtype_inet_not_multi(&daddr))
 				invarg("invalid remote address", *argv);
 		} else if (!matches(*argv, "local")) {
+		    //配置本端地址
 			NEXT_ARG();
 			check_duparg(&attrs, IFLA_VXLAN_LOCAL, "local", *argv);
 			get_addr(&saddr, *argv, daddr.family);
 			if (!is_addrtype_inet_not_multi(&saddr))
 				invarg("invalid local address", *argv);
 		} else if (!matches(*argv, "dev")) {
+		    //设置vxlan对应的link
 			unsigned int link;
 
 			NEXT_ARG();
@@ -141,6 +149,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			addattr32(n, 1024, IFLA_VXLAN_LINK, link);
 		} else if (!matches(*argv, "ttl") ||
 			   !matches(*argv, "hoplimit")) {
+		    //设置ttl
 			unsigned int uval;
 			__u8 ttl = 0;
 
@@ -151,6 +160,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			} else if (strcmp(*argv, "auto") == 0) {
 				addattr8(n, 1024, IFLA_VXLAN_TTL, ttl);
 			} else {
+			    //设置具体的ttl
 				if (get_unsigned(&uval, *argv, 0))
 					invarg("invalid TTL", *argv);
 				if (uval > 255)
@@ -160,6 +170,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			}
 		} else if (!matches(*argv, "tos") ||
 			   !matches(*argv, "dsfield")) {
+		    //设置vxlan封装后的tos
 			__u32 uval;
 			__u8 tos;
 
@@ -170,9 +181,10 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 					invarg("bad TOS value", *argv);
 				tos = uval;
 			} else
-				tos = 1;
+				tos = 1;//inherit时，指定为1
 			addattr8(n, 1024, IFLA_VXLAN_TOS, tos);
 		} else if (!matches(*argv, "df")) {
+		    //设置分片标识
 			enum ifla_vxlan_df df;
 
 			NEXT_ARG();
@@ -200,6 +212,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 				invarg("invalid flowlabel", *argv);
 			addattr32(n, 1024, IFLA_VXLAN_LABEL, htonl(uval));
 		} else if (!matches(*argv, "ageing")) {
+		    /*vxlan fdb过期时间*/
 			__u32 age;
 
 			NEXT_ARG();
@@ -223,6 +236,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			addattr32(n, 1024, IFLA_VXLAN_LIMIT, maxaddr);
 		} else if (!matches(*argv, "port") ||
 			   !matches(*argv, "srcport")) {
+		    //设置源port,容许源port是一组范围
 			struct ifla_vxlan_port_range range = { 0, 0 };
 
 			NEXT_ARG();
@@ -238,17 +252,21 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 					  &range, sizeof(range));
 			}
 		} else if (!matches(*argv, "dstport")) {
+		    /*设置目的port*/
 			NEXT_ARG();
 			check_duparg(&attrs, IFLA_VXLAN_PORT, "dstport", *argv);
 			if (get_u16(&dstport, *argv, 0))
 				invarg("dst port", *argv);
 		} else if (!matches(*argv, "nolearning")) {
+		    /*不开启vxlan fdb学习*/
 			check_duparg(&attrs, IFLA_VXLAN_LEARNING, *argv, *argv);
 			learning = 0;
 		} else if (!matches(*argv, "learning")) {
+		    /*开启vxlan fdb学习*/
 			check_duparg(&attrs, IFLA_VXLAN_LEARNING, *argv, *argv);
 			learning = 1;
 		} else if (!matches(*argv, "noproxy")) {
+		    /*不开启proxy功能时，将不会主动回复arp*/
 			check_duparg(&attrs, IFLA_VXLAN_PROXY, *argv, *argv);
 			addattr8(n, 1024, IFLA_VXLAN_PROXY, 0);
 		} else if (!matches(*argv, "proxy")) {
@@ -311,6 +329,7 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 				     *argv, *argv);
 			addattr8(n, 1024, IFLA_VXLAN_REMCSUM_RX, 0);
 		} else if (!matches(*argv, "external")) {
+		    /*开启collect_metadata模式，这种情况下将禁止learning*/
 			check_duparg(&attrs, IFLA_VXLAN_COLLECT_METADATA,
 				     *argv, *argv);
 			metadata = 1;
@@ -341,22 +360,26 @@ static int vxlan_parse_opt(struct link_util *lu, int argc, char **argv,
 		argc--, argv++;
 	}
 
+	//如果设置了metadata,则vni可以不设置
 	if (metadata && VXLAN_ATTRSET(attrs, IFLA_VXLAN_ID)) {
 		fprintf(stderr, "vxlan: both 'external' and vni cannot be specified\n");
 		return -1;
 	}
 
+	//如果没有设置metadata,vxlanid没设置，set_op也没有设置，则报错
 	if (!metadata && !VXLAN_ATTRSET(attrs, IFLA_VXLAN_ID) && !set_op) {
 		fprintf(stderr, "vxlan: missing virtual network identifier\n");
 		return -1;
 	}
 
+	//指定vxlan_link后，目的地址不得为组播
 	if (is_addrtype_inet_multi(&daddr) &&
 	    !VXLAN_ATTRSET(attrs, IFLA_VXLAN_LINK)) {
 		fprintf(stderr, "vxlan: 'group' requires 'dev' to be specified\n");
 		return -1;
 	}
 
+	//未指定vxlan port,但指定gpe时，dstport为 4790
 	if (!VXLAN_ATTRSET(attrs, IFLA_VXLAN_PORT) &&
 	    VXLAN_ATTRSET(attrs, IFLA_VXLAN_GPE)) {
 		dstport = 4790;

@@ -516,15 +516,15 @@ enum ipvlan_mode {
 /* VXLAN section */
 enum {
 	IFLA_VXLAN_UNSPEC,
-	IFLA_VXLAN_ID,
+	IFLA_VXLAN_ID,/*标记vxlan id*/
 	IFLA_VXLAN_GROUP,	/* group or remote address */
 	IFLA_VXLAN_LINK,
 	IFLA_VXLAN_LOCAL,
 	IFLA_VXLAN_TTL,
 	IFLA_VXLAN_TOS,
 	IFLA_VXLAN_LEARNING,
-	IFLA_VXLAN_AGEING,
-	IFLA_VXLAN_LIMIT,
+	IFLA_VXLAN_AGEING,/*vxlan fdb的过期时间*/
+	IFLA_VXLAN_LIMIT,/*设置vxlan fdb表最大数目*/
 	IFLA_VXLAN_PORT_RANGE,	/* source port */
 	IFLA_VXLAN_PROXY,
 	IFLA_VXLAN_RSC,

@@ -123,6 +123,7 @@ static int batch(const char *name)
 	return ret;
 }
 
+//桥管理命令入口
 int
 main(int argc, char **argv)
 {

@@ -135,10 +135,12 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 			continue;
 		} else if (matches(*argv, "ingress_block") == 0) {
 			NEXT_ARG();
+			//获取ingress block编号（不得为0）
 			if (get_u32(&ingress_block, *argv, 0) || !ingress_block)
 				invarg("invalid ingress block index value", *argv);
 		} else if (matches(*argv, "egress_block") == 0) {
 			NEXT_ARG();
+			//获取egress block编号（不得为0）
 			if (get_u32(&egress_block, *argv, 0) || !egress_block)
 				invarg("invalid egress block index value", *argv);
 		} else if (matches(*argv, "help") == 0) {
@@ -159,6 +161,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 	if (est.ewma_log)
 		addattr_l(&req.n, sizeof(req), TCA_RATE, &est, sizeof(est));
 
+	//如果配置有ingress/egress block，则添加进消息
 	if (ingress_block)
 		addattr32(&req.n, sizeof(req),
 			  TCA_INGRESS_BLOCK, ingress_block);

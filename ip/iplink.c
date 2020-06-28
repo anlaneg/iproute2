@@ -1720,6 +1720,7 @@ int do_iplink(int argc, char **argv)
 		return ipaddr_list_link(0, NULL);
 
 	if (iplink_have_newlink()) {
+	    //link创建
 		if (matches(*argv, "add") == 0)
 			return iplink_modify(RTM_NEWLINK,
 					     NLM_F_CREATE|NLM_F_EXCL,

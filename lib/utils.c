@@ -626,6 +626,7 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 	return 0;
 }
 
+//解析地址addr
 int get_addr_1(inet_prefix *addr, const char *name, int family)
 {
 	int ret;

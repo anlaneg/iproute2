@@ -38,6 +38,7 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 
 	strncpy(buffer, str, sizeof(buffer) - 1);
 
+	//通过'-'分隔首地址，尾地址
 	addr1 = buffer;
 	addr2 = strchr(addr1, '-');
 	if (addr2) {
@@ -45,6 +46,7 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 		addr2++;
 	}
 
+	//转换min地址
 	ret = get_addr(&addr, addr1, AF_UNSPEC);
 	if (ret)
 		return ret;
@@ -52,6 +54,7 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 					TCA_CT_NAT_IPV6_MIN;
 	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);
 
+	//转换max地址
 	if (addr2) {
 		ret = get_addr(&addr, addr2, addr.family);
 		if (ret)
@@ -73,6 +76,7 @@ static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
 
 	strncpy(buffer, str, sizeof(buffer) - 1);
 
+	//采用'-'分隔port范围
 	port1 = buffer;
 	port2 = strchr(port1, '-');
 	if (port2) {
@@ -80,11 +84,13 @@ static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
 		port2++;
 	}
 
+	//转换min_port
 	ret = get_be16(&port, port1, 10);
 	if (ret)
 		return -1;
 	addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MIN, port);
 
+	//转换max_port
 	if (port2) {
 		ret = get_be16(&port, port2, 10);
 		if (ret)
@@ -96,28 +102,33 @@ static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
 }
 
 
-static int ct_parse_u16(char *str, int value_type, int mask_type,
+static int ct_parse_u16(char *str, int value_type/*value类型*/, int mask_type/*mask类型*/,
 			struct nlmsghdr *n)
 {
 	__u16 value, mask;
 	char *slash = 0;
 
 	if (mask_type != TCA_CT_UNSPEC) {
+	    //查找掩码分隔符
 		slash = strchr(str, '/');
 		if (slash)
 			*slash = '\0';
 	}
 
+	//分隔符前半部分转换为u16
 	if (get_u16(&value, str, 0))
 		return -1;
 
 	if (slash) {
+	    //转换mask
 		if (get_u16(&mask, slash + 1, 0))
 			return -1;
 	} else {
+	    //掩码为全F
 		mask = UINT16_MAX;
 	}
 
+	//存入key及mask
 	addattr16(n, MAX_MSG, value_type, value);
 	if (mask_type != TCA_CT_UNSPEC)
 		addattr16(n, MAX_MSG, mask_type, mask);
@@ -131,6 +142,7 @@ static int ct_parse_u32(char *str, int value_type, int mask_type,
 	__u32 value, mask;
 	char *slash;
 
+	//按'/'分隔value,mask
 	slash = strchr(str, '/');
 	if (slash)
 		*slash = '\0';
@@ -145,12 +157,14 @@ static int ct_parse_u32(char *str, int value_type, int mask_type,
 		mask = UINT32_MAX;
 	}
 
+	//存入value,mask
 	addattr32(n, MAX_MSG, value_type, value);
 	addattr32(n, MAX_MSG, mask_type, mask);
 
 	return 0;
 }
 
+//mark解析（u32类型的mask,value)
 static int ct_parse_mark(char *str, struct nlmsghdr *n)
 {
 	return ct_parse_u32(str, TCA_CT_MARK, TCA_CT_MARK_MASK, n);
@@ -160,7 +174,7 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 {
 #define LABELS_SIZE	16
 	uint8_t labels[LABELS_SIZE], lmask[LABELS_SIZE];
-	char *slash, *mask = NULL;
+	char *slash, *mask/*mask起始位置*/ = NULL;
 	size_t slen, slen_mask = 0;
 
 	slash = index(str, '/');
@@ -171,6 +185,7 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 	}
 
 	slen = strlen(str);
+	//16进制，故其长度不能大于LABELS_SIZE的两倍
 	if (slen > LABELS_SIZE*2 || slen_mask > LABELS_SIZE*2) {
 		char errmsg[128];
 
@@ -180,10 +195,12 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 		invarg(errmsg, str);
 	}
 
+	//转换labels的value
 	if (hex2mem(str, labels, slen/2) < 0)
 		invarg("ct: labels must be a hex string\n", str);
 	addattr_l(n, MAX_MSG, TCA_CT_LABELS, labels, slen/2);
 
+	//转换labels的mask
 	if (mask) {
 		if (hex2mem(mask, lmask, slen_mask/2) < 0)
 			invarg("ct: labels mask must be a hex string\n", mask);
@@ -210,12 +227,13 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 	tail = addattr_nest(n, MAX_MSG, tca_id);
 
 	if (argc && matches(*argv, "ct") == 0)
-		NEXT_ARG_FWD();
+		NEXT_ARG_FWD();//跳过ct命令
 
 	while (argc > 0) {
 		if (matches(*argv, "zone") == 0) {
 			NEXT_ARG();
 
+			//解析zone(zone不支持mask)
 			if (ct_parse_u16(*argv,
 					 TCA_CT_ZONE, TCA_CT_UNSPEC, n)) {
 				fprintf(stderr, "ct: Illegal \"zone\"\n");
@@ -237,6 +255,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				usage();
 
 			NEXT_ARG();
+			//解析地址范围
 			ret = ct_parse_nat_addr_range(*argv, n);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal nat address range\n");
@@ -248,6 +267,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				continue;
 
 			NEXT_ARG();
+			//解析port范围
 			ret = ct_parse_nat_port_range(*argv, n);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal nat port range\n");
@@ -268,6 +288,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		} else if (matches(*argv, "mark") == 0) {
 			NEXT_ARG();
 
+			//解析mark
 			ret = ct_parse_mark(*argv, n);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"mark\"\n");
@@ -276,6 +297,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		} else if (matches(*argv, "label") == 0) {
 			NEXT_ARG();
 
+			//解析labels
 			ret = ct_parse_labels(*argv, n);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"label\"\n");
@@ -314,6 +336,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		return -1;
 	}
 
+	//解析控制字段
 	parse_action_control_dflt(&argc, &argv, &sel.action, false,
 				  TC_ACT_PIPE);
 
