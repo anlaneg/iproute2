@@ -165,7 +165,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_SCHED_CLS,
 	BPF_PROG_TYPE_SCHED_ACT,
 	BPF_PROG_TYPE_TRACEPOINT,
-	BPF_PROG_TYPE_XDP,
+	BPF_PROG_TYPE_XDP,/*xdp程序类型*/
 	BPF_PROG_TYPE_PERF_EVENT,
 	BPF_PROG_TYPE_CGROUP_SKB,
 	BPF_PROG_TYPE_CGROUP_SOCK,
@@ -578,11 +578,11 @@ union bpf_attr {
 	} raw_tracepoint;
 
 	struct { /* anonymous struct for BPF_BTF_LOAD */
-		__aligned_u64	btf;
-		__aligned_u64	btf_log_buf;
-		__u32		btf_size;
-		__u32		btf_log_size;
-		__u32		btf_log_level;
+		__aligned_u64	btf;/*btf section起始指针*/
+		__aligned_u64	btf_log_buf;/*log buffer起始指针*/
+		__u32		btf_size;/*btf section大小*/
+		__u32		btf_log_size;/*log buffer大小*/
+		__u32		btf_log_level;/*log级别*/
 	};
 
 	struct {

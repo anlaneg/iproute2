@@ -511,7 +511,8 @@ static int netns_list(int argc, char **argv)
 	return 0;
 }
 
-static int do_switch(void *arg)
+/*切换到名称args指定的netns*/
+static int do_switch(void *arg/*net ns名称*/)
 {
 	char *netns = arg;
 
@@ -520,6 +521,7 @@ static int do_switch(void *arg)
 	 */
 	vrf_reset();
 
+	/*完成netns切换*/
 	return netns_switch(netns);
 }
 
@@ -555,7 +557,7 @@ static int netns_exec(int argc, char **argv)
 	 * so let's add another one here to cancel it.
 	 */
 	//在切换后的环境中执行对应的命令
-	return -cmd_exec(argv[1], argv + 1, !!batch_mode, do_switch, argv[0]);
+	return -cmd_exec(argv[1], argv + 1, !!batch_mode, do_switch, argv[0]/*netns名称*/);
 }
 
 static int is_pid(const char *str)
@@ -771,6 +773,7 @@ static void netns_restore(void)
 	if (saved_netns == -1)
 		return;
 
+	/*还原当前进程到saved_netns保存的ns*/
 	if (setns(saved_netns, CLONE_NEWNET)) {
 		perror("setns");
 		exit(1);
@@ -853,7 +856,7 @@ static int netns_add(int argc, char **argv, bool create)
 	}
 
 	/* Create the filesystem state */
-	//创建指定文件
+	//创建net ns名称文件
 	fd = open(netns_path, O_RDONLY|O_CREAT|O_EXCL, 0);
 	if (fd < 0) {
 		fprintf(stderr, "Cannot create namespace file \"%s\": %s\n",
@@ -864,6 +867,7 @@ static int netns_add(int argc, char **argv, bool create)
 
 	if (create) {
 		netns_save();
+		/*新建一个net ns,并切换当前进程到此ns*/
 		if (unshare(CLONE_NEWNET) < 0) {
 			fprintf(stderr, "Failed to create a new network namespace \"%s\": %s\n",
 				name, strerror(errno));
@@ -1051,6 +1055,7 @@ int do_netns(int argc, char **argv)
 	if (matches(*argv, "pids") == 0)
 		return netns_pids(argc-1, argv+1);
 
+	/*在指定netns中执行命令*/
 	if (matches(*argv, "exec") == 0)
 		return netns_exec(argc-1, argv+1);
 

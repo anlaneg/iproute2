@@ -58,8 +58,8 @@ struct bpf_cfg_ops {
 };
 
 enum bpf_mode {
-	CBPF_BYTECODE,
-	CBPF_FILE,
+	CBPF_BYTECODE,//字节码
+	CBPF_FILE,//字节码文件
 	EBPF_OBJECT,//object类型文件
 	EBPF_PINNED,
 	BPF_MODE_MAX,

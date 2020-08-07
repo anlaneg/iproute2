@@ -7,7 +7,7 @@
 #include "utils.h"
 #include "namespace.h"
 
-int cmd_exec(const char *cmd, char **argv, bool do_fork,
+int cmd_exec(const char *cmd, char **argv, bool do_fork/*是否需要先fork*/,
 	     int (*setup)(void *), void *arg)
 {
 	fflush(stdout);
@@ -23,6 +23,7 @@ int cmd_exec(const char *cmd, char **argv, bool do_fork,
 
 		if (pid != 0) {
 			/* Parent  */
+		    /*父进程只需要等子进程结束*/
 			if (waitpid(pid, &status, 0) < 0) {
 				perror("waitpid");
 				exit(1);

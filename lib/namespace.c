@@ -63,7 +63,7 @@ int netns_switch(char *name)
 		return -1;
 	}
 
-	//关联到netns
+	//关联到net ns
 	if (setns(netns, CLONE_NEWNET) < 0) {
 		fprintf(stderr, "setting the network namespace \"%s\" failed: %s\n",
 			name, strerror(errno));
@@ -72,6 +72,7 @@ int netns_switch(char *name)
 	}
 	close(netns);
 
+	//新建一个mount ns
 	if (unshare(CLONE_NEWNS) < 0) {
 		fprintf(stderr, "unshare failed: %s\n", strerror(errno));
 		return -1;
@@ -128,6 +129,7 @@ int netns_foreach(int (*func)(char *nsname, void *arg), void *arg)
 	if (!dir)
 		return -1;
 
+	//遍历netns run目录，跳过'.','..'目录，针对所有其它目录执行func回调
 	while ((entry = readdir(dir)) != NULL) {
 		if (strcmp(entry->d_name, ".") == 0)
 			continue;

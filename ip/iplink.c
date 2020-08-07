@@ -600,25 +600,28 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "up") == 0) {
+		    /*设置接口up*/
 			req->i.ifi_change |= IFF_UP;
 			req->i.ifi_flags |= IFF_UP;
 		} else if (strcmp(*argv, "down") == 0) {
+		    /*设置接口down*/
 			req->i.ifi_change |= IFF_UP;
 			req->i.ifi_flags &= ~IFF_UP;
 		} else if (strcmp(*argv, "name") == 0) {
+		    /*设置接口名称*/
 			NEXT_ARG();
 			if (name)
 				duparg("name", *argv);
 			if (check_ifname(*argv))
 				invarg("\"name\" not a valid ifname", *argv);
-			name = *argv;
+			name = *argv;/*指定的接口名称*/
 			if (!dev)
 				dev = name;
 		} else if (strcmp(*argv, "index") == 0) {
 			NEXT_ARG();
 			if (index)
 				duparg("index", *argv);
-			index = atoi(*argv);
+			index = atoi(*argv);/*获取接口index*/
 			if (index <= 0)
 				invarg("Invalid \"index\" value", *argv);
 		} else if (matches(*argv, "link") == 0) {
@@ -642,6 +645,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 		} else if (matches(*argv, "txqueuelen") == 0 ||
 			   strcmp(*argv, "qlen") == 0 ||
 			   matches(*argv, "txqlen") == 0) {
+		    /*设置tx队列长度*/
 			NEXT_ARG();
 			if (qlen != -1)
 				duparg("txqueuelen", *argv);
@@ -650,6 +654,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			addattr_l(&req->n, sizeof(*req),
 				  IFLA_TXQLEN, &qlen, 4);
 		} else if (strcmp(*argv, "mtu") == 0) {
+		    /*设置设备mtu*/
 			NEXT_ARG();
 			if (mtu != -1)
 				duparg("mtu", *argv);
@@ -660,6 +665,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			   strcmp(*argv, "xdpdrv") == 0 ||
 			   strcmp(*argv, "xdpoffload") == 0 ||
 			   strcmp(*argv, "xdp") == 0) {
+		    /*xdp相关设置，依据命令字确定使用flags*/
 			bool generic = strcmp(*argv, "xdpgeneric") == 0;
 			bool drv = strcmp(*argv, "xdpdrv") == 0;
 			bool offload = strcmp(*argv, "xdpoffload") == 0;
@@ -806,6 +812,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			argc--; argv++;
 			break;
 		} else if (matches(*argv, "alias") == 0) {
+		    //设置接口别名
 			NEXT_ARG();
 			len = strlen(*argv);
 			if (len >= IFALIASZ)

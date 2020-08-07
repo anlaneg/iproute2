@@ -25,15 +25,16 @@ struct xdp_req {
 	__u32 flags;
 };
 
+/*实现ebpf程序赋给xdp*/
 static void xdp_ebpf_cb(void *raw, int fd, const char *annotation)
 {
 	struct xdp_req *xdp = raw;
 	struct iplink_req *req = xdp->req;
 	struct rtattr *xdp_attr;
 
-	//存入IFLA_XDP_FD
+	//存入IFLA_XDP属性，并在其中明确fd/flags
 	xdp_attr = addattr_nest(&req->n, sizeof(*req), IFLA_XDP);
-	addattr32(&req->n, sizeof(*req), IFLA_XDP_FD, fd);
+	addattr32(&req->n, sizeof(*req), IFLA_XDP_FD, fd/*ebpf程序对应的fd*/);
 	if (xdp->flags)
 		addattr32(&req->n, sizeof(*req), IFLA_XDP_FLAGS, xdp->flags);
 	addattr_nest_end(&req->n, xdp_attr);
@@ -50,7 +51,8 @@ static int xdp_delete(struct xdp_req *xdp)
 }
 
 int xdp_parse(int *argc, char ***argv, struct iplink_req *req,
-	      const char *ifname, bool generic, bool drv, bool offload)
+	      const char *ifname, bool generic/*采用xdpgeneric方式*/,
+	      bool drv/*采用xdpdrv方式*/, bool offload/*采用xdpoffload方式*/)
 {
 	struct bpf_cfg_in cfg = {
 		.type = BPF_PROG_TYPE_XDP,
@@ -62,6 +64,7 @@ int xdp_parse(int *argc, char ***argv, struct iplink_req *req,
 	};
 
 	if (offload) {
+	    /*offload方式，要求可用ifname获得ifindex*/
 		int ifindex = ll_name_to_index(ifname);
 
 		if (!ifindex)
@@ -79,11 +82,13 @@ int xdp_parse(int *argc, char ***argv, struct iplink_req *req,
 		xdp.flags |= XDP_FLAGS_HW_MODE;
 
 	if (*argc == 1) {
+	    /*检查是否需要执行xdp移除*/
 		if (strcmp(**argv, "none") == 0 ||
 		    strcmp(**argv, "off") == 0)
 			return xdp_delete(&xdp);
 	}
 
+	/*执行xdp命令解析并装载*/
 	if (bpf_parse_and_load_common(&cfg, &bpf_cb_ops, &xdp))
 		return -1;
 

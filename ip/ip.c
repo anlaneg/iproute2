@@ -37,7 +37,7 @@ int timestamp;
 int force;
 int max_flush_loops = 10;
 int batch_mode;
-bool do_all;
+bool do_all;/*是否针对所有netns*/
 
 struct rtnl_handle rth = { .fd = -1 };
 
@@ -295,6 +295,7 @@ int main(int argc, char **argv)
 		} else if (matches(opt, "-Numeric") == 0) {
 			++numeric;
 		} else if (matches(opt, "-all") == 0) {
+		    /*指明针对所有netns进行操作*/
 			do_all = true;
 		} else {
 			fprintf(stderr,

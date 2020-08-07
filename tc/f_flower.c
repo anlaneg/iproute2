@@ -1338,7 +1338,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				return -1;
 			}
 		} else if (matches(*argv, "indev") == 0) {
-			//指明indev,采用哪个入接口设备
+			//指明indev,指定匹配入接口设备
 			NEXT_ARG();
 			if (check_ifname(*argv))
 				invarg("\"indev\" not a valid ifname", *argv);
