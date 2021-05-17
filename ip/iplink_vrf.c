@@ -29,6 +29,7 @@ static void explain(void)
 	vrf_explain(stderr);
 }
 
+/*目前接收一个table参数*/
 static int vrf_parse_opt(struct link_util *lu, int argc, char **argv,
 			    struct nlmsghdr *n)
 {
@@ -38,6 +39,7 @@ static int vrf_parse_opt(struct link_util *lu, int argc, char **argv,
 
 			NEXT_ARG();
 
+			/*添加vrf table*/
 			if (rtnl_rttable_a2n(&table, *argv))
 				invarg("invalid table ID\n", *argv);
 			addattr32(n, 1024, IFLA_VRF_TABLE, table);
@@ -56,6 +58,7 @@ static int vrf_parse_opt(struct link_util *lu, int argc, char **argv,
 	return 0;
 }
 
+/*显示对应的vrf table取值*/
 static void vrf_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 {
 	if (!tb)

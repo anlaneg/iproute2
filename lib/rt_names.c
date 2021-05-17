@@ -446,6 +446,7 @@ const char *rtnl_rttable_n2a(__u32 id, char *buf, int len)
 	return buf;
 }
 
+/*arg名称转路由表id*/
 int rtnl_rttable_a2n(__u32 *id, const char *arg)
 {
 	static const char *cache;
