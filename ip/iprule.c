@@ -771,6 +771,7 @@ static int iprule_restore(void)
 	exit(rtnl_from_file(stdin, &restore_handler, NULL));
 }
 
+/*策略添加删除*/
 static int iprule_modify(int cmd, int argc, char **argv)
 {
 	int l3mdev_rule = 0;
@@ -830,7 +831,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 		} else if (matches(*argv, "preference") == 0 ||
 			   matches(*argv, "order") == 0 ||
 			   matches(*argv, "priority") == 0) {
-			//添加优化级
+			//添加规则优化级
 			__u32 pref;
 
 			NEXT_ARG();
@@ -847,6 +848,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("TOS value is invalid\n", *argv);
 			req.frh.tos = tos;
 		} else if (strcmp(*argv, "fwmark") == 0) {
+			/*指明要匹配的fwmark,含掩码*/
 			char *slash;
 			__u32 fwmark, fwmask;
 
@@ -873,7 +875,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("invalid realms\n", *argv);
 			addattr32(&req.n, sizeof(req), FRA_FLOW, realm);
 		} else if (matches(*argv, "protocol") == 0) {
-			//添加协议
+			//添加路由协议
 			__u32 proto;
 
 			NEXT_ARG();
@@ -881,7 +883,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("\"protocol\" value is invalid\n", *argv);
 			addattr8(&req.n, sizeof(req), FRA_PROTOCOL, proto);
 		} else if (matches(*argv, "tun_id") == 0) {
-			//添加隧道id
+			//添加隧道id(为u64格式）
 			__u64 tun_id;
 
 			NEXT_ARG();
@@ -904,6 +906,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			table_ok = 1;
 		} else if (matches(*argv, "suppress_prefixlength") == 0 ||
 			   strcmp(*argv, "sup_pl") == 0) {
+			/*指明要suppress的前缀长度*/
 			int pl;
 
 			NEXT_ARG();
@@ -914,6 +917,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				  FRA_SUPPRESS_PREFIXLEN, pl);
 		} else if (matches(*argv, "suppress_ifgroup") == 0 ||
 			   strcmp(*argv, "sup_group") == 0) {
+			/*指明要suppress的ifgroup*/
 			NEXT_ARG();
 			int group;
 
@@ -958,6 +962,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				  get_addr32(*argv));
 			req.frh.action = RTN_NAT;
 		} else if (strcmp(*argv, "ipproto") == 0) {
+			/*指明要应用的协议*/
 			int ipproto;
 
 			NEXT_ARG();
@@ -1043,6 +1048,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 	return 0;
 }
 
+/*ip rule命令入口*/
 int do_iprule(int argc, char **argv)
 {
 	if (argc < 1) {
@@ -1050,6 +1056,7 @@ int do_iprule(int argc, char **argv)
 	} else if (matches(argv[0], "list") == 0 ||
 		   matches(argv[0], "lst") == 0 ||
 		   matches(argv[0], "show") == 0) {
+		/*显示策略*/
 		return iprule_list_flush_or_save(argc-1, argv+1, IPRULE_LIST);
 	} else if (matches(argv[0], "save") == 0) {
 		return iprule_list_flush_or_save(argc-1, argv+1, IPRULE_SAVE);
@@ -1059,6 +1066,7 @@ int do_iprule(int argc, char **argv)
 		//添加策略
 		return iprule_modify(RTM_NEWRULE, argc-1, argv+1);
 	} else if (matches(argv[0], "delete") == 0) {
+		//策略删除
 		return iprule_modify(RTM_DELRULE, argc-1, argv+1);
 	} else if (matches(argv[0], "flush") == 0) {
 		return iprule_list_flush_or_save(argc-1, argv+1, IPRULE_FLUSH);
