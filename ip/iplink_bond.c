@@ -25,6 +25,7 @@
 static unsigned int xstats_print_attr;
 static int filter_index;
 
+/*bond支持的所有mode*/
 static const char *mode_tbl[] = {
 	"balance-rr",
 	"active-backup",
@@ -103,10 +104,12 @@ static int get_index(const char **tbl, char *name)
 
 	/* check for integer index passed in instead of name */
 	if (get_integer(&index, name, 10) == 0)
+	    /*如果name转index成功，则采用tbl[index]号索引*/
 		for (i = 0; tbl[i]; i++)
 			if (i == index)
 				return i;
 
+	/*通过名称查tbl，得知tbl元素下标*/
 	for (i = 0; tbl[i]; i++)
 		if (strcmp(tbl[i], name) == 0)
 			return i;
@@ -174,17 +177,21 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 	while (argc > 0) {
 		if (matches(*argv, "mode") == 0) {
 			NEXT_ARG();
+			/*如果mode转换失败，则报错退出*/
 			if (get_index(mode_tbl, *argv) < 0)
 				invarg("invalid mode", *argv);
+			/*完成bond mode填充*/
 			mode = get_index(mode_tbl, *argv);
 			addattr8(n, 1024, IFLA_BOND_MODE, mode);
 		} else if (matches(*argv, "active_slave") == 0) {
+		    /*设置指定名称netdev为active_slave*/
 			NEXT_ARG();
 			ifindex = ll_name_to_index(*argv);
 			if (!ifindex)
 				return nodev(*argv);
 			addattr32(n, 1024, IFLA_BOND_ACTIVE_SLAVE, ifindex);
 		} else if (matches(*argv, "clear_active_slave") == 0) {
+		    /*清除当前设置的active_slave设备*/
 			addattr32(n, 1024, IFLA_BOND_ACTIVE_SLAVE, 0);
 		} else if (matches(*argv, "miimon") == 0) {
 			NEXT_ARG();
@@ -217,6 +224,7 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 				invarg("invalid arp_interval", *argv);
 			addattr32(n, 1024, IFLA_BOND_ARP_INTERVAL, arp_interval);
 		} else if (matches(*argv, "arp_ip_target") == 0) {
+		    //配置多个以逗号分隔的ip_target
 			struct rtattr *nest = addattr_nest(n, 1024,
 				IFLA_BOND_ARP_IP_TARGET);
 			if (NEXT_ARG_OK()) {
@@ -235,6 +243,7 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 			}
 			addattr_nest_end(n, nest);
 		} else if (matches(*argv, "arp_validate") == 0) {
+		    //配置arp validate的方式
 			NEXT_ARG();
 			if (get_index(arp_validate_tbl, *argv) < 0)
 				invarg("invalid arp_validate", *argv);
@@ -247,6 +256,7 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 			arp_all_targets = get_index(arp_all_targets_tbl, *argv);
 			addattr32(n, 1024, IFLA_BOND_ARP_ALL_TARGETS, arp_all_targets);
 		} else if (matches(*argv, "primary") == 0) {
+		    //设置主接口
 			NEXT_ARG();
 			ifindex = ll_name_to_index(*argv);
 			if (!ifindex)
@@ -362,6 +372,7 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 			addattr8(n, 1024, IFLA_BOND_TLB_DYNAMIC_LB,
 				 tlb_dynamic_lb);
 		} else if (matches(*argv, "help") == 0) {
+		    //显示帮助信息
 			explain();
 			return -1;
 		} else {
@@ -375,6 +386,7 @@ static int bond_parse_opt(struct link_util *lu, int argc, char **argv,
 	return 0;
 }
 
+//解析tb，显示bond的参数
 static void bond_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 {
 	if (!tb)

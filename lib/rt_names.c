@@ -239,7 +239,7 @@ int rtnl_rtprot_a2n(__u32 *id/*出参，路由协议类型索引*/, const char *
 	return 0;
 }
 
-
+/*地址对应的scope*/
 static char *rtnl_rtscope_tab[256] = {
 	[RT_SCOPE_UNIVERSE]	= "global",
 	[RT_SCOPE_NOWHERE]	= "nowhere",
@@ -276,6 +276,7 @@ const char *rtnl_rtscope_n2a(int id, char *buf, int len)
 	return buf;
 }
 
+/*取scope名称对应的scope id*/
 int rtnl_rtscope_a2n(__u32 *id, const char *arg)
 {
 	static const char *cache;

@@ -1118,6 +1118,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "src") == 0) {
+		    /*指定prefsrc地址*/
 			inet_prefix addr;
 
 			NEXT_ARG();
@@ -1506,6 +1507,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 			req.r.rtm_dst_len = dst.bitlen;
 			dst_ok = 1;
 			if (dst.bytelen)
+			    /*添加网络地址*/
 				addattr_l(&req.n, sizeof(req),
 					  RTA_DST, &dst.data, dst.bytelen);
 		}
@@ -1516,6 +1518,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 		usage();
 
 	if (d) {
+	    /*添加出接口对应的ifindex*/
 		int idx = ll_name_to_index(d);
 
 		if (!idx)

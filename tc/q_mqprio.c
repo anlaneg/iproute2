@@ -37,6 +37,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 			    char **argv, struct nlmsghdr *n, const char *dev)
 {
 	int idx;
+	/*默认的qopt*/
 	struct tc_mqprio_qopt opt = {
 		.num_tc = 8,
 		.prio_tc_map = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 1, 1, 3, 3, 3, 3 },
@@ -54,6 +55,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 
 	while (argc > 0) {
 		idx = 0;
+		/*用于指定num_tc*/
 		if (strcmp(*argv, "num_tc") == 0) {
 			NEXT_ARG();
 			if (get_u8(&opt.num_tc, *argv, 10)) {
@@ -61,6 +63,10 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 				return -1;
 			}
 		} else if (strcmp(*argv, "map") == 0) {
+		    /*map中最大有16个队列，收集map信息
+		     * 格式如下示：
+		     * ”map 2 2 1 0 2 2 2 2 2 2 2 2 2 2 2 2 “
+		     * */
 			while (idx < TC_QOPT_MAX_QUEUE && NEXT_ARG_OK()) {
 				NEXT_ARG();
 				if (get_u8(&opt.prio_tc_map[idx], *argv, 10)) {
@@ -69,11 +75,15 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 				}
 				idx++;
 			}
+			/*将出错的全置为0*/
 			for ( ; idx < TC_QOPT_MAX_QUEUE; idx++)
 				opt.prio_tc_map[idx] = 0;
 		} else if (strcmp(*argv, "queues") == 0) {
 			char *tmp, *tok;
-
+			/*收集queues：
+			 * 格式如下示
+			 * “queues 1@0 1@1 2@2 ”
+			 * */
 			while (idx < TC_QOPT_MAX_QUEUE && NEXT_ARG_OK()) {
 				NEXT_ARG();
 
@@ -141,6 +151,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 			idx++;
 		} else if ((shaper == TC_MQPRIO_SHAPER_BW_RATE) &&
 			   strcmp(*argv, "min_rate") == 0) {
+		    /*每个队列的最小速率*/
 			while (idx < TC_QOPT_MAX_QUEUE && NEXT_ARG_OK()) {
 				NEXT_ARG();
 				if (get_rate64(&min_rate64[idx], *argv)) {
@@ -156,6 +167,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 			flags |= TC_MQPRIO_F_MIN_RATE;
 		} else if ((shaper == TC_MQPRIO_SHAPER_BW_RATE) &&
 			   strcmp(*argv, "max_rate") == 0) {
+		    /*每个队列的最大速率*/
 			while (idx < TC_QOPT_MAX_QUEUE && NEXT_ARG_OK()) {
 				NEXT_ARG();
 				if (get_rate64(&max_rate64[idx], *argv)) {
@@ -170,6 +182,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 			}
 			flags |= TC_MQPRIO_F_MAX_RATE;
 		} else if (strcmp(*argv, "help") == 0) {
+		    /*显示帮助信息*/
 			explain();
 			return -1;
 		} else {
@@ -184,6 +197,7 @@ static int mqprio_parse_opt(struct qdisc_util *qu, int argc,
 		return -1;
 	}
 
+	/*填充配置选项*/
 	tail = NLMSG_TAIL(n);
 	addattr_l(n, 1024, TCA_OPTIONS, &opt, sizeof(opt));
 

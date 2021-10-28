@@ -113,6 +113,7 @@ int get_hex(char c)
 	return -1;
 }
 
+/*将arg转换为整数*/
 int get_integer(int *val, const char *arg, int base)
 {
 	long res;
@@ -793,6 +794,7 @@ int get_prefix(inet_prefix *dst, char *arg, int family)
 	return 0;
 }
 
+//将target转换为ipv4地址
 __u32 get_addr32(const char *name)
 {
 	inet_prefix addr;

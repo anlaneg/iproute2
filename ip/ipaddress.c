@@ -1957,9 +1957,11 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 		}
 	}
 
+	/*增加过滤条件*/
 	while (argc > 0) {
 		if (strcmp(*argv, "to") == 0) {
 			NEXT_ARG();
+			/*要求显示指定前缀*/
 			if (get_prefix(&filter.pfx, *argv, filter.family))
 				invarg("invalid \"to\"\n", *argv);
 			if (filter.family == AF_UNSPEC)
@@ -2307,6 +2309,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			addattr_l(&req.n, sizeof(req), IFA_ANYCAST, &addr.data, addr.bytelen);
 			any_len = addr.bytelen;
 		} else if (strcmp(*argv, "scope") == 0) {
+		    /*地址对应的scope*/
 			unsigned int scope = 0;
 
 			NEXT_ARG();
@@ -2466,16 +2469,17 @@ int do_ipaddr(int argc, char **argv)
 	if (argc < 1)
 	    //列出所有接口地址
 		return ipaddr_list_flush_or_save(0, NULL, IPADD_LIST);
-	//向设备添加地址
 	if (matches(*argv, "add") == 0)
+	    /*向设备添加地址*/
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_CREATE|NLM_F_EXCL, argc-1, argv+1);
 	if (matches(*argv, "change") == 0 ||
 		strcmp(*argv, "chg") == 0)
+	    /*修改设备地址*/
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_REPLACE, argc-1, argv+1);
 	if (matches(*argv, "replace") == 0)
 		return ipaddr_modify(RTM_NEWADDR, NLM_F_CREATE|NLM_F_REPLACE, argc-1, argv+1);
-	//删除设备上的地址
 	if (matches(*argv, "delete") == 0)
+	    /*删除设备上的地址*/
 		return ipaddr_modify(RTM_DELADDR, 0, argc-1, argv+1);
 	//列出指定接口或者所有接口地址
 	if (matches(*argv, "list") == 0 || matches(*argv, "show") == 0

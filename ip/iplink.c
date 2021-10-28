@@ -380,6 +380,7 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 	while (NEXT_ARG_OK()) {
 		NEXT_ARG();
 		if (matches(*argv, "mac") == 0) {
+		    /*vf mac地址设置*/
 			struct ifla_vf_mac ivm = { 0 };
 			int halen = nl_get_ll_addr_len(dev);
 
@@ -397,6 +398,7 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 			addattr_l(&req->n, sizeof(*req), IFLA_VF_MAC,
 				  &ivm, sizeof(ivm));
 		} else if (matches(*argv, "vlan") == 0) {
+		    /*vf vlan设置*/
 			struct ifla_vf_vlan_info ivvi;
 
 			iplink_parse_vf_vlan_info(vf, &argc, &argv, &ivvi);
@@ -433,6 +435,7 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 				addattr_nest_end(&req->n, vfvlanlist);
 			}
 		} else if (matches(*argv, "rate") == 0) {
+		    /*tx速率设置*/
 			struct ifla_vf_tx_rate ivt;
 
 			NEXT_ARG();
@@ -756,6 +759,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			struct rtattr *vflist;
 
 			NEXT_ARG();
+			/*提取用户配置的vf id*/
 			if (get_integer(&vf,  *argv, 0))
 				invarg("Invalid \"vf\" value\n", *argv);
 
@@ -784,6 +788,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			int ifindex;
 
 			NEXT_ARG();
+			/*vrf参数必须是一个存在的netdev*/
 			ifindex = ll_name_to_index(*argv);
 			if (!ifindex)
 				invarg("Not a valid VRF name\n", *argv);
@@ -808,7 +813,8 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 				return on_off("dynamic", *argv);
 		} else if (matches(*argv, "type") == 0) {
 			NEXT_ARG();
-			*type = *argv;//设置类型
+			//设置类型
+			*type = *argv;
 			argc--; argv++;
 			break;
 		} else if (matches(*argv, "alias") == 0) {
