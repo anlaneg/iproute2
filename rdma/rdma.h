@@ -19,6 +19,7 @@
 
 #include "list.h"
 #include "utils.h"
+#include "mnl_utils.h"
 #include "json_print.h"
 
 #define pr_err(args...) fprintf(stderr, ##args)
@@ -39,7 +40,7 @@ struct filter_entry {
 	char *key;
 	char *value;
 	/*
-	 * This field menas that we can try to issue .doit calback
+	 * This field means that we can try to issue .doit calback
 	 * on value above. This value can be converted to integer
 	 * with simple atoi(). Otherwise "is_doit" will be false.
 	 */
@@ -57,8 +58,9 @@ struct rd {
 	int argc;
 	char **argv;
 	char *filename;
-	bool show_details;
-	bool show_driver_details;
+	uint8_t show_details:1;
+	uint8_t show_driver_details:1;
+	uint8_t show_raw:1;
 	struct list_head dev_map_list;
 	uint32_t dev_idx;
 	uint32_t port_idx;
@@ -83,6 +85,7 @@ struct rd_cmd {
  * Parser interface
  */
 bool rd_no_arg(struct rd *rd);
+bool rd_is_multiarg(struct rd *rd);
 void rd_arg_inc(struct rd *rd);
 
 char *rd_argv(struct rd *rd);
@@ -134,9 +137,10 @@ int rd_attr_check(const struct nlattr *attr, int *typep);
  * Print helpers
  */
 void print_driver_table(struct rd *rd, struct nlattr *tb);
+void print_raw_data(struct rd *rd, struct nlattr **nla_line);
 void newline(struct rd *rd);
 void newline_indent(struct rd *rd);
-void print_on_off(struct rd *rd, const char *key_str, bool on);
+void print_raw_data(struct rd *rd, struct nlattr **nla_line);
 #define MAX_LINE_LENGTH 80
 
 #endif /* _RDMA_TOOL_H_ */

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #define _ATFILE_SOURCE
+#include <sys/file.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -75,9 +76,12 @@ static int ipnetns_have_nsid(void)
 	};
 	int fd;
 
-	if (have_rtnl_getnsid < 0) {
+	if (have_rtnl_getnsid >= 0) {
 		fd = open("/proc/self/ns/net", O_RDONLY);
 		if (fd < 0) {
+			fprintf(stderr,
+				"/proc/self/ns/net: %s. Continuing anyway.\n",
+				strerror(errno));
 			have_rtnl_getnsid = 0;
 			return 0;
 		}
@@ -85,8 +89,12 @@ static int ipnetns_have_nsid(void)
 		addattr32(&req.n, 1024, NETNSA_FD, fd);
 
 		if (rtnl_send(&rth, &req.n, req.n.nlmsg_len) < 0) {
-			perror("request send failed");
-			exit(1);
+			fprintf(stderr,
+				"rtnl_send(RTM_GETNSID): %s. Continuing anyway.\n",
+				strerror(errno));
+			have_rtnl_getnsid = 0;
+			close(fd);
+			return 0;
 		}
 		rtnl_listen(&rth, ipnetns_accept_msg, NULL);
 		close(fd);
@@ -575,18 +583,18 @@ static int netns_pids(int argc, char **argv)
 {
 	const char *name;
 	char net_path[PATH_MAX];
-	int netns;
+	int netns = -1, ret = -1;
 	struct stat netst;
 	DIR *dir;
 	struct dirent *entry;
 
 	if (argc < 1) {
 		fprintf(stderr, "No netns name specified\n");
-		return -1;
+		goto out;
 	}
 	if (argc > 1) {
 		fprintf(stderr, "extra arguments specified\n");
-		return -1;
+		goto out;
 	}
 
 	name = argv[0];
@@ -595,18 +603,18 @@ static int netns_pids(int argc, char **argv)
 	if (netns < 0) {
 		fprintf(stderr, "Cannot open network namespace: %s\n",
 			strerror(errno));
-		return -1;
+		goto out;
 	}
 	if (fstat(netns, &netst) < 0) {
 		fprintf(stderr, "Stat of netns failed: %s\n",
 			strerror(errno));
-		return -1;
+		goto out;
 	}
 	dir = opendir("/proc/");
 	if (!dir) {
 		fprintf(stderr, "Open of /proc failed: %s\n",
 			strerror(errno));
-		return -1;
+		goto out;
 	}
 	while ((entry = readdir(dir))) {
 		char pid_net_path[PATH_MAX];
@@ -623,15 +631,19 @@ static int netns_pids(int argc, char **argv)
 			printf("%s\n", entry->d_name);
 		}
 	}
+	ret = 0;
 	closedir(dir);
-	return 0;
+out:
+	if (netns >= 0)
+		close(netns);
+	return ret;
 
 }
 
 int netns_identify_pid(const char *pidstr, char *name, int len)
 {
 	char net_path[PATH_MAX];
-	int netns;
+	int netns = -1, ret = -1;
 	struct stat netst;
 	DIR *dir;
 	struct dirent *entry;
@@ -643,22 +655,24 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 	if (netns < 0) {
 		fprintf(stderr, "Cannot open network namespace: %s\n",
 			strerror(errno));
-		return -1;
+		goto out;
 	}
 	if (fstat(netns, &netst) < 0) {
 		fprintf(stderr, "Stat of netns failed: %s\n",
 			strerror(errno));
-		return -1;
+		goto out;
 	}
 	dir = opendir(NETNS_RUN_DIR);
 	if (!dir) {
 		/* Succeed treat a missing directory as an empty directory */
-		if (errno == ENOENT)
-			return 0;
+		if (errno == ENOENT) {
+			ret = 0;
+			goto out;
+		}
 
 		fprintf(stderr, "Failed to open directory %s:%s\n",
 			NETNS_RUN_DIR, strerror(errno));
-		return -1;
+		goto out;
 	}
 
 	while ((entry = readdir(dir))) {
@@ -681,8 +695,12 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 			strlcpy(name, entry->d_name, len);
 		}
 	}
+	ret = 0;
 	closedir(dir);
-	return 0;
+out:
+	if (netns >= 0)
+		close(netns);
+	return ret;
 
 }
 
@@ -801,6 +819,7 @@ static int netns_add(int argc, char **argv, bool create)
 	const char *name;
 	pid_t pid;
 	int fd;
+	int lock;
 	int made_netns_run_dir_mount = 0;
 
 	if (create) {
@@ -836,13 +855,38 @@ static int netns_add(int argc, char **argv, bool create)
 	 * namespace file in one namespace will unmount the network namespace
 	 * file in all namespaces allowing the network namespace to be freed
 	 * sooner.
+	 * These setup steps need to happen only once, as if multiple ip processes
+	 * try to attempt the same operation at the same time, the mountpoints will
+	 * be recursively created multiple times, eventually causing the system
+	 * to lock up. For example, this has been observed when multiple netns
+	 * namespaces are created in parallel at boot. See:
+	 * https://bugs.debian.org/949235
+	 * Try to take an exclusive file lock on the top level directory to ensure
+	 * this cannot happen, but proceed nonetheless if it cannot happen for any
+	 * reason.
 	 */
+	lock = open(NETNS_RUN_DIR, O_RDONLY|O_DIRECTORY, 0);
+	if (lock < 0) {
+		fprintf(stderr, "Cannot open netns runtime directory \"%s\": %s\n",
+			NETNS_RUN_DIR, strerror(errno));
+		return -1;
+	}
+	if (flock(lock, LOCK_EX) < 0) {
+		fprintf(stderr, "Warning: could not flock netns runtime directory \"%s\": %s\n",
+			NETNS_RUN_DIR, strerror(errno));
+		close(lock);
+		lock = -1;
+	}
 	//执行 '/var/run/netns/'目录挂载
 	while (mount("", NETNS_RUN_DIR, "none", MS_SHARED | MS_REC, NULL)) {
 		/* Fail unless we need to make the mount point */
 		if (errno != EINVAL || made_netns_run_dir_mount) {
 			fprintf(stderr, "mount --make-shared %s failed: %s\n",
 				NETNS_RUN_DIR, strerror(errno));
+			if (lock != -1) {
+				flock(lock, LOCK_UN);
+				close(lock);
+			}
 			return -1;
 		}
 
@@ -850,9 +894,17 @@ static int netns_add(int argc, char **argv, bool create)
 		if (mount(NETNS_RUN_DIR, NETNS_RUN_DIR, "none", MS_BIND | MS_REC, NULL)) {
 			fprintf(stderr, "mount --bind %s %s failed: %s\n",
 				NETNS_RUN_DIR, NETNS_RUN_DIR, strerror(errno));
+			if (lock != -1) {
+				flock(lock, LOCK_UN);
+				close(lock);
+			}
 			return -1;
 		}
 		made_netns_run_dir_mount = 1;
+	}
+	if (lock != -1) {
+		flock(lock, LOCK_UN);
+		close(lock);
 	}
 
 	/* Create the filesystem state */

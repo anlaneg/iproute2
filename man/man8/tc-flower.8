@@ -1,11 +1,5 @@
 .TH "Flower filter in tc" 8 "22 Oct 2015" "iproute2" "Linux"
 
-	"Usage: ct clear\n"
-		"	ct commit [force] [zone ZONE] [mark MASKED_MARK] [label MASKED_LABEL] [nat NAT_SPEC] [OFFLOAD_POLICY]\n"
-		"	ct [nat] [zone ZONE] [OFFLOAD_POLICY]\n"
-		"Where: ZONE is the conntrack zone table number\n"
-		"	NAT_SPEC is {src|dst} addr addr1[-addr2] [port port1[-port2]]\n"
-		"	OFFLOAD_POLICY is [policy_pkts PACKETS] [policy_timeout TIMEOUT]\n"
 .SH NAME
 flower \- flow based traffic control filter
 .SH SYNOPSIS
@@ -46,6 +40,8 @@ flower \- flow based traffic control filter
 .IR PRIORITY " | "
 .BR cvlan_ethtype " { " ipv4 " | " ipv6 " | "
 .IR ETH_TYPE " } | "
+.B mpls
+.IR LSE_LIST " | "
 .B mpls_label
 .IR LABEL " | "
 .B mpls_tc
@@ -96,7 +92,24 @@ flower \- flow based traffic control filter
 }
 .IR OPTIONS " | "
 .BR ip_flags
-.IR IP_FLAGS
+.IR IP_FLAGS " }"
+
+.ti -8
+.IR LSE_LIST " := [ " LSE_LIST " ] " LSE
+
+.ti -8
+.IR LSE " := "
+.B lse depth
+.IR DEPTH " { "
+.B label
+.IR LABEL " | "
+.B tc
+.IR TC " | "
+.B bos
+.IR BOS " | "
+.B ttl
+.IR TTL " }"
+
 .SH DESCRIPTION
 The
 .B flower
@@ -182,6 +195,56 @@ Match on QinQ layer three protocol.
 may be either
 .BR ipv4 ", " ipv6
 or an unsigned 16bit value in hexadecimal format.
+
+.TP
+.BI mpls " LSE_LIST"
+Match on the MPLS label stack.
+.I LSE_LIST
+is a list of Label Stack Entries, each introduced by the
+.BR lse " keyword."
+This option can't be used together with the standalone
+.BR mpls_label ", " mpls_tc ", " mpls_bos " and " mpls_ttl " options."
+.RS
+.TP
+.BI lse " LSE_OPTIONS"
+Match on an MPLS Label Stack Entry.
+.I LSE_OPTIONS
+is a list of options that describe the properties of the LSE to match.
+.RS
+.TP
+.BI depth " DEPTH"
+The depth of the Label Stack Entry to consider. Depth starts at 1 (the
+outermost Label Stack Entry). The maximum usable depth may be limited by the
+kernel. This option is mandatory.
+.I DEPTH
+is an unsigned 8 bit value in decimal format.
+.TP
+.BI label " LABEL"
+Match on the MPLS Label field at the specified
+.BR depth .
+.I LABEL
+is an unsigned 20 bit value in decimal format.
+.TP
+.BI tc " TC"
+Match on the MPLS Traffic Class field at the specified
+.BR depth .
+.I TC
+is an unsigned 3 bit value in decimal format.
+.TP
+.BI bos " BOS"
+Match on the MPLS Bottom Of Stack field at the specified
+.BR depth .
+.I BOS
+is a 1 bit value in decimal format.
+.TP
+.BI ttl " TTL"
+Match on the MPLS Time To Live field at the specified
+.BR depth .
+.I TTL
+is an unsigned 8 bit value in decimal format.
+.RE
+.RE
+
 .TP
 .BI mpls_label " LABEL"
 Match the label id in the outermost MPLS label stack entry.
@@ -237,7 +300,7 @@ If the prefix is missing, \fBtc\fR assumes a full-length host match.
 .TQ
 .IR \fBsrc_port " { "  MASKED_NUMBER " | " " MIN_VALUE-MAX_VALUE "  }
 Match on layer 4 protocol source or destination port number, with an
-optional mask. Alternatively, the mininum and maximum values can be
+optional mask. Alternatively, the minimum and maximum values can be
 specified to match on a range of layer 4 protocol source or destination
 port numbers. Only available for
 .BR ip_proto " values " udp ", " tcp  " and " sctp
@@ -315,7 +378,7 @@ Matches on connection tracking info
 .RS
 .TP
 .I CT_STATE
-Match the connection state, and can ne combination of [{+|-}flag] flags, where flag can be one of
+Match the connection state, and can be combination of [{+|-}flag] flags, where flag can be one of
 .RS
 .TP
 trk - Tracked connection.
@@ -323,6 +386,12 @@ trk - Tracked connection.
 new - New connection.
 .TP
 est - Established connection.
+.TP
+rpl - The packet is in the reply direction, meaning that it is in the opposite direction from the packet that initiated the connection.
+.TP
+inv - The state is invalid. The packet couldn't be associated to a connection.
+.TP
+rel - The packet is related to an existing connection.
 .TP
 Example: +trk+est
 .RE
@@ -393,7 +462,7 @@ on the matches of the next lower layer. Precisely, layer one and two matches
 (\fBindev\fR,  \fBdst_mac\fR and \fBsrc_mac\fR)
 have no dependency,
 MPLS and layer three matches
-(\fBmpls_label\fR, \fBmpls_tc\fR, \fBmpls_bos\fR, \fBmpls_ttl\fR,
+(\fBmpls\fR, \fBmpls_label\fR, \fBmpls_tc\fR, \fBmpls_bos\fR, \fBmpls_ttl\fR,
 \fBip_proto\fR, \fBdst_ip\fR, \fBsrc_ip\fR, \fBarp_tip\fR, \fBarp_sip\fR,
 \fBarp_op\fR, \fBarp_tha\fR, \fBarp_sha\fR and \fBip_flags\fR)
 depend on the

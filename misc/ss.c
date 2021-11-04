@@ -35,7 +35,7 @@
 #include "ll_map.h"
 #include "libnetlink.h"
 #include "namespace.h"
-#include "SNAPSHOT.h"
+#include "version.h"
 #include "rt_names.h"
 #include "cg_map.h"
 
@@ -61,6 +61,10 @@
 #endif
 #ifndef AF_VSOCK
 #define AF_VSOCK PF_VSOCK
+#endif
+
+#ifndef IPPROTO_MPTCP
+#define IPPROTO_MPTCP 262
 #endif
 
 #define BUF_CHUNK (1024 * 1024)	/* Buffer chunk allocation size */
@@ -110,6 +114,7 @@ static int sctp_ino;
 static int show_tipcinfo;
 static int show_tos;
 static int show_cgroup;
+static int show_inet_sockopt;
 int oneline;
 
 enum col_id {
@@ -189,6 +194,7 @@ static const char *dg_proto;
 
 enum {
 	TCP_DB,
+	MPTCP_DB,
 	DCCP_DB,
 	UDP_DB,
 	RAW_DB,
@@ -209,7 +215,7 @@ enum {
 #define PACKET_DBM ((1<<PACKET_DG_DB)|(1<<PACKET_R_DB))
 #define UNIX_DBM ((1<<UNIX_DG_DB)|(1<<UNIX_ST_DB)|(1<<UNIX_SQ_DB))
 #define ALL_DB ((1<<MAX_DB)-1)
-#define INET_L4_DBM ((1<<TCP_DB)|(1<<UDP_DB)|(1<<DCCP_DB)|(1<<SCTP_DB))
+#define INET_L4_DBM ((1<<TCP_DB)|(1<<MPTCP_DB)|(1<<UDP_DB)|(1<<DCCP_DB)|(1<<SCTP_DB))
 #define INET_DBM (INET_L4_DBM | (1<<RAW_DB))
 #define VSOCK_DBM ((1<<VSOCK_ST_DB)|(1<<VSOCK_DG_DB))
 
@@ -259,6 +265,10 @@ struct filter {
 
 static const struct filter default_dbs[MAX_DB] = {
 	[TCP_DB] = {
+		.states   = SS_CONN,
+		.families = FAMILY_MASK(AF_INET) | FAMILY_MASK(AF_INET6),
+	},
+	[MPTCP_DB] = {
 		.states   = SS_CONN,
 		.families = FAMILY_MASK(AF_INET) | FAMILY_MASK(AF_INET6),
 	},
@@ -376,14 +386,15 @@ static int filter_db_parse(struct filter *f, const char *s)
 		int dbs[MAX_DB + 1];
 	} db_name_tbl[] = {
 #define ENTRY(name, ...) { #name, { __VA_ARGS__, MAX_DB } }
-		ENTRY(all, UDP_DB, DCCP_DB, TCP_DB, RAW_DB,
+		ENTRY(all, UDP_DB, DCCP_DB, TCP_DB, MPTCP_DB, RAW_DB,
 			   UNIX_ST_DB, UNIX_DG_DB, UNIX_SQ_DB,
 			   PACKET_R_DB, PACKET_DG_DB, NETLINK_DB,
 			   SCTP_DB, VSOCK_ST_DB, VSOCK_DG_DB, XDP_DB),
-		ENTRY(inet, UDP_DB, DCCP_DB, TCP_DB, SCTP_DB, RAW_DB),
+		ENTRY(inet, UDP_DB, DCCP_DB, TCP_DB, MPTCP_DB, SCTP_DB, RAW_DB),
 		ENTRY(udp, UDP_DB),
 		ENTRY(dccp, DCCP_DB),
 		ENTRY(tcp, TCP_DB),
+		ENTRY(mptcp, MPTCP_DB),
 		ENTRY(sctp, SCTP_DB),
 		ENTRY(raw, RAW_DB),
 		ENTRY(unix, UNIX_ST_DB, UNIX_DG_DB, UNIX_SQ_DB),
@@ -890,6 +901,8 @@ static const char *proto_name(int protocol)
 		return "udp";
 	case IPPROTO_TCP:
 		return "tcp";
+	case IPPROTO_MPTCP:
+		return "mptcp";
 	case IPPROTO_SCTP:
 		return "sctp";
 	case IPPROTO_DCCP:
@@ -1670,7 +1683,7 @@ static int unix_match(const inet_prefix *a, const inet_prefix *p)
 		return 1;
 	if (addr == NULL)
 		addr = "";
-	return !fnmatch(pattern, addr, 0);
+	return !fnmatch(pattern, addr, FNM_CASEFOLD);
 }
 
 static int run_ssfilter(struct ssfilter *f, struct sockstat *s)
@@ -2098,6 +2111,18 @@ static void vsock_set_inet_prefix(inet_prefix *a, __u32 cid)
 	memcpy(a->data, &cid, sizeof(cid));
 }
 
+static char* find_port(char *addr, bool is_port)
+{
+	char *port = NULL;
+	if (is_port)
+		port = addr;
+	else
+		port = strchr(addr, ':');
+	if (port && *port == ':')
+		*port++ = '\0';
+	return port;
+}
+
 void *parse_hostcond(char *addr, bool is_port)
 {
 	char *port = NULL;
@@ -2106,35 +2131,49 @@ void *parse_hostcond(char *addr, bool is_port)
 	int fam = preferred_family;
 	struct filter *f = &current_filter;
 
-	if (fam == AF_UNIX || strncmp(addr, "unix:", 5) == 0) {
+	if (strncmp(addr, "unix:", 5) == 0) {
+		fam = AF_UNIX;
+		addr += 5;
+	} else if (strncmp(addr, "link:", 5) == 0) {
+		fam = AF_PACKET;
+		addr += 5;
+	} else if (strncmp(addr, "netlink:", 8) == 0) {
+		fam = AF_NETLINK;
+		addr += 8;
+	} else if (strncmp(addr, "vsock:", 6) == 0) {
+		fam = AF_VSOCK;
+		addr += 6;
+	} else if (strncmp(addr, "inet:", 5) == 0) {
+		fam = AF_INET;
+		addr += 5;
+	} else if (strncmp(addr, "inet6:", 6) == 0) {
+		fam = AF_INET6;
+		addr += 6;
+	}
+
+	if (fam == AF_UNIX) {
 		char *p;
 
 		a.addr.family = AF_UNIX;
-		if (strncmp(addr, "unix:", 5) == 0)
-			addr += 5;
 		p = strdup(addr);
 		a.addr.bitlen = 8*strlen(p);
 		memcpy(a.addr.data, &p, sizeof(p));
-		fam = AF_UNIX;
 		goto out;
 	}
 
-	if (fam == AF_PACKET || strncmp(addr, "link:", 5) == 0) {
+	if (fam == AF_PACKET) {
 		a.addr.family = AF_PACKET;
 		a.addr.bitlen = 0;
-		if (strncmp(addr, "link:", 5) == 0)
-			addr += 5;
-		port = strchr(addr, ':');
+		port = find_port(addr, is_port);
 		if (port) {
-			*port = 0;
-			if (port[1] && strcmp(port+1, "*")) {
-				if (get_integer(&a.port, port+1, 0)) {
-					if ((a.port = xll_name_to_index(port+1)) <= 0)
+			if (*port && strcmp(port, "*")) {
+				if (get_integer(&a.port, port, 0)) {
+					if ((a.port = xll_name_to_index(port)) <= 0)
 						return NULL;
 				}
 			}
 		}
-		if (addr[0] && strcmp(addr, "*")) {
+		if (!is_port && addr[0] && strcmp(addr, "*")) {
 			unsigned short tmp;
 
 			a.addr.bitlen = 32;
@@ -2142,75 +2181,49 @@ void *parse_hostcond(char *addr, bool is_port)
 				return NULL;
 			a.addr.data[0] = ntohs(tmp);
 		}
-		fam = AF_PACKET;
 		goto out;
 	}
 
-	if (fam == AF_NETLINK || strncmp(addr, "netlink:", 8) == 0) {
+	if (fam == AF_NETLINK) {
 		a.addr.family = AF_NETLINK;
 		a.addr.bitlen = 0;
-		if (strncmp(addr, "netlink:", 8) == 0)
-			addr += 8;
-		port = strchr(addr, ':');
+		port = find_port(addr, is_port);
 		if (port) {
-			*port = 0;
-			if (port[1] && strcmp(port+1, "*")) {
-				if (get_integer(&a.port, port+1, 0)) {
-					if (strcmp(port+1, "kernel") == 0)
+			if (*port && strcmp(port, "*")) {
+				if (get_integer(&a.port, port, 0)) {
+					if (strcmp(port, "kernel") == 0)
 						a.port = 0;
 					else
 						return NULL;
 				}
 			}
 		}
-		if (addr[0] && strcmp(addr, "*")) {
+		if (!is_port && addr[0] && strcmp(addr, "*")) {
 			a.addr.bitlen = 32;
 			if (nl_proto_a2n(&a.addr.data[0], addr) == -1)
 				return NULL;
 		}
-		fam = AF_NETLINK;
 		goto out;
 	}
 
-	if (fam == AF_VSOCK || strncmp(addr, "vsock:", 6) == 0) {
+	if (fam == AF_VSOCK) {
 		__u32 cid = ~(__u32)0;
 
 		a.addr.family = AF_VSOCK;
-		if (strncmp(addr, "vsock:", 6) == 0)
-			addr += 6;
 
-		if (is_port)
-			port = addr;
-		else {
-			port = strchr(addr, ':');
-			if (port) {
-				*port = '\0';
-				port++;
-			}
-		}
+		port = find_port(addr, is_port);
 
 		if (port && strcmp(port, "*") &&
 		    get_u32((__u32 *)&a.port, port, 0))
 			return NULL;
 
-		if (addr[0] && strcmp(addr, "*")) {
+		if (!is_port && addr[0] && strcmp(addr, "*")) {
 			a.addr.bitlen = 32;
 			if (get_u32(&cid, addr, 0))
 				return NULL;
 		}
 		vsock_set_inet_prefix(&a.addr, cid);
-		fam = AF_VSOCK;
 		goto out;
-	}
-
-	if (fam == AF_INET || !strncmp(addr, "inet:", 5)) {
-		fam = AF_INET;
-		if (!strncmp(addr, "inet:", 5))
-			addr += 5;
-	} else if (fam == AF_INET6 || !strncmp(addr, "inet6:", 6)) {
-		fam = AF_INET6;
-		if (!strncmp(addr, "inet6:", 6))
-			addr += 6;
 	}
 
 	/* URL-like literal [] */
@@ -3117,6 +3130,55 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r,
 	}
 }
 
+static void mptcp_stats_print(struct mptcp_info *s)
+{
+	if (s->mptcpi_subflows)
+		out(" subflows:%d", s->mptcpi_subflows);
+	if (s->mptcpi_add_addr_signal)
+		out(" add_addr_signal:%d", s->mptcpi_add_addr_signal);
+	if (s->mptcpi_add_addr_accepted)
+		out(" add_addr_accepted:%d", s->mptcpi_add_addr_accepted);
+	if (s->mptcpi_subflows_max)
+		out(" subflows_max:%d", s->mptcpi_subflows_max);
+	if (s->mptcpi_add_addr_signal_max)
+		out(" add_addr_signal_max:%d", s->mptcpi_add_addr_signal_max);
+	if (s->mptcpi_add_addr_accepted_max)
+		out(" add_addr_accepted_max:%d", s->mptcpi_add_addr_accepted_max);
+	if (s->mptcpi_flags & MPTCP_INFO_FLAG_FALLBACK)
+		out(" fallback");
+	if (s->mptcpi_flags & MPTCP_INFO_FLAG_REMOTE_KEY_RECEIVED)
+		out(" remote_key");
+	if (s->mptcpi_token)
+		out(" token:%x", s->mptcpi_token);
+	if (s->mptcpi_write_seq)
+		out(" write_seq:%llx", s->mptcpi_write_seq);
+	if (s->mptcpi_snd_una)
+		out(" snd_una:%llx", s->mptcpi_snd_una);
+	if (s->mptcpi_rcv_nxt)
+		out(" rcv_nxt:%llx", s->mptcpi_rcv_nxt);
+}
+
+static void mptcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r,
+			    struct rtattr *tb[])
+{
+	print_skmeminfo(tb, INET_DIAG_SKMEMINFO);
+
+	if (tb[INET_DIAG_INFO]) {
+		struct mptcp_info *info;
+		int len = RTA_PAYLOAD(tb[INET_DIAG_INFO]);
+
+		/* workaround for older kernels with less fields */
+		if (len < sizeof(*info)) {
+			info = alloca(sizeof(*info));
+			memcpy(info, RTA_DATA(tb[INET_DIAG_INFO]), len);
+			memset((char *)info + len, 0, sizeof(*info) - len);
+		} else
+			info = RTA_DATA(tb[INET_DIAG_INFO]);
+
+		mptcp_stats_print(info);
+	}
+}
+
 static const char *format_host_sa(struct sockaddr_storage *sa)
 {
 	union {
@@ -3272,11 +3334,48 @@ static int inet_show_sock(struct nlmsghdr *nlh,
 			out(" cgroup:%s", cg_id_to_path(rta_getattr_u64(tb[INET_DIAG_CGROUP_ID])));
 	}
 
+	if (show_inet_sockopt) {
+		if (tb[INET_DIAG_SOCKOPT] && RTA_PAYLOAD(tb[INET_DIAG_SOCKOPT]) >=
+		    sizeof(struct inet_diag_sockopt)) {
+			const struct inet_diag_sockopt *sockopt =
+					RTA_DATA(tb[INET_DIAG_SOCKOPT]);
+			if (!oneline)
+				out("\n\tinet-sockopt: (");
+			else
+				out(" inet-sockopt: (");
+			if (sockopt->recverr)
+				out(" recverr");
+			if (sockopt->is_icsk)
+				out(" is_icsk");
+			if (sockopt->freebind)
+				out(" freebind");
+			if (sockopt->hdrincl)
+				out(" hdrincl");
+			if (sockopt->mc_loop)
+				out(" mc_loop");
+			if (sockopt->transparent)
+				out(" transparent");
+			if (sockopt->mc_all)
+				out(" mc_all");
+			if (sockopt->nodefrag)
+				out(" nodefrag");
+			if (sockopt->bind_address_no_port)
+				out(" bind_addr_no_port");
+			if (sockopt->recverr_rfc4884)
+				out(" recverr_rfc4884");
+			if (sockopt->defer_connect)
+				out(" defer_connect");
+			out(")");
+		}
+	}
+
 	if (show_mem || (show_tcpinfo && s->type != IPPROTO_UDP)) {
 		if (!oneline)
 			out("\n\t");
 		if (s->type == IPPROTO_SCTP)
 			sctp_show_info(nlh, r, tb);
+		else if (s->type == IPPROTO_MPTCP)
+			mptcp_show_info(nlh, r, tb);
 		else
 			tcp_show_info(nlh, r, tb);
 	}
@@ -3305,13 +3404,13 @@ static int tcpdiag_send(int fd, int protocol, struct filter *f)
 	struct iovec iov[3];
 	int iovlen = 1;
 
-	if (protocol == IPPROTO_UDP)
-		return -1;
-
 	if (protocol == IPPROTO_TCP)
 		req.nlh.nlmsg_type = TCPDIAG_GETSOCK;
-	else
+	else if (protocol == IPPROTO_DCCP)
 		req.nlh.nlmsg_type = DCCPDIAG_GETSOCK;
+	else
+		return -1;
+
 	if (show_mem) {
 		req.r.idiag_ext |= (1<<(INET_DIAG_MEMINFO-1));
 		req.r.idiag_ext |= (1<<(INET_DIAG_SKMEMINFO-1));
@@ -3365,9 +3464,11 @@ static int sockdiag_send(int family, int fd, int protocol, struct filter *f)
 	DIAG_REQUEST(req, struct inet_diag_req_v2 r);
 	char    *bc = NULL;
 	int	bclen;
+	__u32	proto;
 	struct msghdr msg;
-	struct rtattr rta;
-	struct iovec iov[3];
+	struct rtattr rta_bc;
+	struct rtattr rta_proto;
+	struct iovec iov[5];
 	int iovlen = 1;
 
 	if (family == PF_UNSPEC)
@@ -3400,13 +3501,24 @@ static int sockdiag_send(int family, int fd, int protocol, struct filter *f)
 	if (f->f) {
 		bclen = ssfilter_bytecompile(f->f, &bc);
 		if (bclen) {
-			rta.rta_type = INET_DIAG_REQ_BYTECODE;
-			rta.rta_len = RTA_LENGTH(bclen);
-			iov[1] = (struct iovec){ &rta, sizeof(rta) };
+			rta_bc.rta_type = INET_DIAG_REQ_BYTECODE;
+			rta_bc.rta_len = RTA_LENGTH(bclen);
+			iov[1] = (struct iovec){ &rta_bc, sizeof(rta_bc) };
 			iov[2] = (struct iovec){ bc, bclen };
 			req.nlh.nlmsg_len += RTA_LENGTH(bclen);
 			iovlen = 3;
 		}
+	}
+
+	/* put extended protocol attribute, if required */
+	if (protocol > 255) {
+		rta_proto.rta_type = INET_DIAG_REQ_PROTOCOL;
+		rta_proto.rta_len = RTA_LENGTH(sizeof(proto));
+		proto = protocol;
+		iov[iovlen] = (struct iovec){ &rta_proto, sizeof(rta_proto) };
+		iov[iovlen + 1] = (struct iovec){ &proto, sizeof(proto) };
+		req.nlh.nlmsg_len += RTA_LENGTH(sizeof(proto));
+		iovlen += 2;
 	}
 
 	msg = (struct msghdr) {
@@ -3510,6 +3622,14 @@ static int inet_show_netlink(struct filter *f, FILE *dump_fp, int protocol)
 	rth.dump_fp = dump_fp;
 	if (preferred_family == PF_INET6)
 		family = PF_INET6;
+
+	/* extended protocol will use INET_DIAG_REQ_PROTOCOL,
+	 * not supported by older kernels. On such kernel
+	 * rtnl_dump will bail with rtnl_dump_error().
+	 * Suppress the error to avoid confusing the user
+	 */
+	if (protocol > 255)
+		rth.flags |= RTNL_HANDLE_F_SUPPRESS_NLERR;
 
 again:
 	if ((err = sockdiag_send(family, rth.fd, protocol, f)))
@@ -3666,6 +3786,18 @@ outerr:
 		errno = saved_errno;
 		return -1;
 	} while (0);
+}
+
+static int mptcp_show(struct filter *f)
+{
+	if (!filter_af_get(f, AF_INET) && !filter_af_get(f, AF_INET6))
+		return 0;
+
+	if (!getenv("PROC_NET_MPTCP") && !getenv("PROC_ROOT")
+	    && inet_show_netlink(f, NULL, IPPROTO_MPTCP) == 0)
+		return 0;
+
+	return 0;
 }
 
 static int dccp_show(struct filter *f)
@@ -4412,6 +4544,21 @@ static void xdp_show_umem(struct xdp_diag_umem *umem, struct xdp_diag_ring *fr,
 		xdp_show_ring("cr", cr);
 }
 
+static void xdp_show_stats(struct xdp_diag_stats *stats)
+{
+	if (oneline)
+		out(" stats(");
+	else
+		out("\n\tstats(");
+	out("rx dropped:%llu", stats->n_rx_dropped);
+	out(",rx invalid:%llu", stats->n_rx_invalid);
+	out(",rx queue full:%llu", stats->n_rx_full);
+	out(",rx fill ring empty:%llu", stats->n_fill_ring_empty);
+	out(",tx invalid:%llu", stats->n_tx_invalid);
+	out(",tx ring empty:%llu", stats->n_tx_ring_empty);
+	out(")");
+}
+
 static int xdp_show_sock(struct nlmsghdr *nlh, void *arg)
 {
 	struct xdp_diag_ring *rx = NULL, *tx = NULL, *fr = NULL, *cr = NULL;
@@ -4419,6 +4566,7 @@ static int xdp_show_sock(struct nlmsghdr *nlh, void *arg)
 	struct rtattr *tb[XDP_DIAG_MAX + 1];
 	struct xdp_diag_info *info = NULL;
 	struct xdp_diag_umem *umem = NULL;
+	struct xdp_diag_stats *stats = NULL;
 	const struct filter *f = arg;
 	struct sockstat stat = {};
 
@@ -4453,6 +4601,8 @@ static int xdp_show_sock(struct nlmsghdr *nlh, void *arg)
 
 		stat.rq = skmeminfo[SK_MEMINFO_RMEM_ALLOC];
 	}
+	if (tb[XDP_DIAG_STATS])
+		stats = RTA_DATA(tb[XDP_DIAG_STATS]);
 
 	if (xdp_stats_print(&stat, f))
 		return 0;
@@ -4464,6 +4614,8 @@ static int xdp_show_sock(struct nlmsghdr *nlh, void *arg)
 			xdp_show_ring("tx", tx);
 		if (umem)
 			xdp_show_umem(umem, fr, cr);
+		if (stats)
+			xdp_show_stats(stats);
 	}
 
 	if (show_mem)
@@ -4482,7 +4634,7 @@ static int xdp_show(struct filter *f)
 
 	req.r.sdiag_family = AF_XDP;
 	req.r.xdiag_show = XDP_SHOW_INFO | XDP_SHOW_RING_CFG | XDP_SHOW_UMEM |
-			   XDP_SHOW_MEMINFO;
+			   XDP_SHOW_MEMINFO | XDP_SHOW_STATS;
 
 	return handle_netlink_request(f, &req.nlh, sizeof(req), xdp_show_sock);
 }
@@ -5108,6 +5260,7 @@ static void _usage(FILE *dest)
 "   -6, --ipv6          display only IP version 6 sockets\n"
 "   -0, --packet        display PACKET sockets\n"
 "   -t, --tcp           display only TCP sockets\n"
+"   -M, --mptcp         display only MPTCP sockets\n"
 "   -S, --sctp          display only SCTP sockets\n"
 "   -u, --udp           display only UDP sockets\n"
 "   -d, --dccp          display only DCCP sockets\n"
@@ -5121,9 +5274,10 @@ static void _usage(FILE *dest)
 "   -K, --kill          forcibly close sockets, display what was closed\n"
 "   -H, --no-header     Suppress header line\n"
 "   -O, --oneline       socket's data printed on a single line\n"
+"       --inet-sockopt  show various inet socket options\n"
 "\n"
 "   -A, --query=QUERY, --socket=QUERY\n"
-"       QUERY := {all|inet|tcp|udp|raw|unix|unix_dgram|unix_stream|unix_seqpacket|packet|netlink|vsock_stream|vsock_dgram|tipc}[,QUERY]\n"
+"       QUERY := {all|inet|tcp|mptcp|udp|raw|unix|unix_dgram|unix_stream|unix_seqpacket|packet|netlink|vsock_stream|vsock_dgram|tipc}[,QUERY]\n"
 "\n"
 "   -D, --diag=FILE     Dump raw information about TCP sockets to FILE\n"
 "   -F, --filter=FILE   read filter information from FILE\n"
@@ -5210,6 +5364,8 @@ static int scan_state(const char *state)
 
 #define OPT_CGROUP 261
 
+#define OPT_INET_SOCKOPT 262
+
 static const struct option long_opts[] = {
 	{ "numeric", 0, 0, 'n' },
 	{ "resolve", 0, 0, 'r' },
@@ -5250,7 +5406,9 @@ static const struct option long_opts[] = {
 	{ "kill", 0, 0, 'K' },
 	{ "no-header", 0, 0, 'H' },
 	{ "xdp", 0, 0, OPT_XDPSOCK},
+	{ "mptcp", 0, 0, 'M' },
 	{ "oneline", 0, 0, 'O' },
+	{ "inet-sockopt", 0, 0, OPT_INET_SOCKOPT },
 	{ 0 }
 
 };
@@ -5266,7 +5424,7 @@ int main(int argc, char *argv[])
 	int state_filter = 0;
 
 	while ((ch = getopt_long(argc, argv,
-				 "dhaletuwxnro460spbEf:miA:D:F:vVzZN:KHSO",
+				 "dhaletuwxnro460spbEf:mMiA:D:F:vVzZN:KHSO",
 				 long_opts, NULL)) != EOF) {
 		switch (ch) {
 		case 'n':
@@ -5341,6 +5499,9 @@ int main(int argc, char *argv[])
 		case OPT_XDPSOCK:
 			filter_af_set(&current_filter, AF_XDP);
 			break;
+		case 'M':
+			filter_db_set(&current_filter, MPTCP_DB, true);
+			break;
 		case 'f':
 			if (strcmp(optarg, "inet") == 0)
 				filter_af_set(&current_filter, AF_INET);
@@ -5411,7 +5572,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'v':
 		case 'V':
-			printf("ss utility, iproute2-ss%s\n", SNAPSHOT);
+			printf("ss utility, iproute2-%s\n", version);
 			exit(0);
 		case 'z':
 			show_sock_ctx++;
@@ -5445,6 +5606,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'O':
 			oneline = 1;
+			break;
+		case OPT_INET_SOCKOPT:
+			show_inet_sockopt = 1;
 			break;
 		case 'h':
 			help();
@@ -5566,6 +5730,8 @@ int main(int argc, char *argv[])
 		tipc_show(&current_filter);
 	if (current_filter.dbs & (1<<XDP_DB))
 		xdp_show(&current_filter);
+	if (current_filter.dbs & (1<<MPTCP_DB))
+		mptcp_show(&current_filter);
 
 	if (show_users || show_proc_ctx || show_sock_ctx)
 		user_ent_destroy();

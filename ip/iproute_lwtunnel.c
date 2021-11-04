@@ -34,6 +34,8 @@
 #include <linux/seg6_hmac.h>
 #include <linux/seg6_local.h>
 #include <linux/if_tunnel.h>
+#include <linux/ioam6.h>
+#include <linux/ioam6_iptunnel.h>
 
 static const char *format_encap_type(int type)
 {
@@ -54,6 +56,8 @@ static const char *format_encap_type(int type)
 		return "seg6local";
 	case LWTUNNEL_ENCAP_RPL:
 		return "rpl";
+	case LWTUNNEL_ENCAP_IOAM6:
+		return "ioam6";
 	default:
 		return "unknown";
 	}
@@ -90,6 +94,8 @@ static int read_encap_type(const char *name)
 		return LWTUNNEL_ENCAP_SEG6_LOCAL;
 	else if (strcmp(name, "rpl") == 0)
 		return LWTUNNEL_ENCAP_RPL;
+	else if (strcmp(name, "ioam6") == 0)
+		return LWTUNNEL_ENCAP_IOAM6;
 	else if (strcmp(name, "help") == 0)
 		encap_type_usage();
 
@@ -204,6 +210,25 @@ static void print_encap_rpl(FILE *fp, struct rtattr *encap)
 	print_rpl_srh(fp, srh);
 }
 
+static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
+{
+	struct rtattr *tb[IOAM6_IPTUNNEL_MAX + 1];
+	struct ioam6_trace_hdr *trace;
+
+	parse_rtattr_nested(tb, IOAM6_IPTUNNEL_MAX, encap);
+
+	if (!tb[IOAM6_IPTUNNEL_TRACE])
+		return;
+
+	trace = RTA_DATA(tb[IOAM6_IPTUNNEL_TRACE]);
+
+	print_null(PRINT_ANY, "trace", "trace ", NULL);
+	print_null(PRINT_ANY, "prealloc", "prealloc ", NULL);
+	print_hex(PRINT_ANY, "type", "type %#08x ", ntohl(trace->type_be32) >> 8);
+	print_uint(PRINT_ANY, "ns", "ns %u ", ntohs(trace->namespace_id));
+	print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
+}
+
 static const char *seg6_action_names[SEG6_LOCAL_ACTION_MAX + 1] = {
 	[SEG6_LOCAL_ACTION_END]			= "End",
 	[SEG6_LOCAL_ACTION_END_X]		= "End.X",
@@ -220,6 +245,7 @@ static const char *seg6_action_names[SEG6_LOCAL_ACTION_MAX + 1] = {
 	[SEG6_LOCAL_ACTION_END_AS]		= "End.AS",
 	[SEG6_LOCAL_ACTION_END_AM]		= "End.AM",
 	[SEG6_LOCAL_ACTION_END_BPF]		= "End.BPF",
+	[SEG6_LOCAL_ACTION_END_DT46]		= "End.DT46",
 };
 
 static const char *format_action_type(int action)
@@ -266,6 +292,42 @@ static void print_encap_bpf_prog(FILE *fp, struct rtattr *encap,
 	}
 }
 
+static void print_seg6_local_counters(FILE *fp, struct rtattr *encap)
+{
+	struct rtattr *tb[SEG6_LOCAL_CNT_MAX + 1];
+	__u64 packets = 0, bytes = 0, errors = 0;
+
+	parse_rtattr_nested(tb, SEG6_LOCAL_CNT_MAX, encap);
+
+	if (tb[SEG6_LOCAL_CNT_PACKETS])
+		packets = rta_getattr_u64(tb[SEG6_LOCAL_CNT_PACKETS]);
+
+	if (tb[SEG6_LOCAL_CNT_BYTES])
+		bytes = rta_getattr_u64(tb[SEG6_LOCAL_CNT_BYTES]);
+
+	if (tb[SEG6_LOCAL_CNT_ERRORS])
+		errors = rta_getattr_u64(tb[SEG6_LOCAL_CNT_ERRORS]);
+
+	if (is_json_context()) {
+		open_json_object("stats64");
+
+		print_u64(PRINT_JSON, "packets", NULL, packets);
+		print_u64(PRINT_JSON, "bytes", NULL, bytes);
+		print_u64(PRINT_JSON, "errors", NULL, errors);
+
+		close_json_object();
+	} else {
+		print_string(PRINT_FP, NULL, "%s ", "packets");
+		print_num(fp, 1, packets);
+
+		print_string(PRINT_FP, NULL, "%s ", "bytes");
+		print_num(fp, 1, bytes);
+
+		print_string(PRINT_FP, NULL, "%s ", "errors");
+		print_num(fp, 1, errors);
+	}
+}
+
 static void print_encap_seg6local(FILE *fp, struct rtattr *encap)
 {
 	struct rtattr *tb[SEG6_LOCAL_MAX + 1];
@@ -294,6 +356,11 @@ static void print_encap_seg6local(FILE *fp, struct rtattr *encap)
 			     rtnl_rttable_n2a(rta_getattr_u32(tb[SEG6_LOCAL_TABLE]),
 			     b1, sizeof(b1)));
 
+	if (tb[SEG6_LOCAL_VRFTABLE])
+		print_string(PRINT_ANY, "vrftable", "vrftable %s ",
+			     rtnl_rttable_n2a(rta_getattr_u32(tb[SEG6_LOCAL_VRFTABLE]),
+			     b1, sizeof(b1)));
+
 	if (tb[SEG6_LOCAL_NH4]) {
 		print_string(PRINT_ANY, "nh4",
 			     "nh4 %s ", rt_addr_n2a_rta(AF_INET, tb[SEG6_LOCAL_NH4]));
@@ -320,6 +387,9 @@ static void print_encap_seg6local(FILE *fp, struct rtattr *encap)
 
 	if (tb[SEG6_LOCAL_BPF])
 		print_encap_bpf_prog(fp, tb[SEG6_LOCAL_BPF], "endpoint");
+
+	if (tb[SEG6_LOCAL_COUNTERS] && show_stats)
+		print_seg6_local_counters(fp, tb[SEG6_LOCAL_COUNTERS]);
 }
 
 static void print_encap_mpls(FILE *fp, struct rtattr *encap)
@@ -612,6 +682,9 @@ void lwt_print_encap(FILE *fp, struct rtattr *encap_type,
 	case LWTUNNEL_ENCAP_RPL:
 		print_encap_rpl(fp, encap);
 		break;
+	case LWTUNNEL_ENCAP_IOAM6:
+		print_encap_ioam6(fp, encap);
+		break;
 	}
 }
 
@@ -808,6 +881,102 @@ out:
 	return ret;
 }
 
+static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
+			     char ***argvp)
+{
+	struct ioam6_trace_hdr *trace;
+	char **argv = *argvp;
+	int argc = *argcp;
+	int ns_found = 0;
+	__u16 size = 0;
+	__u32 type = 0;
+	__u16 ns;
+
+	trace = calloc(1, sizeof(*trace));
+	if (!trace)
+		return -1;
+
+	if (strcmp(*argv, "trace"))
+		missarg("trace");
+
+	NEXT_ARG();
+	if (strcmp(*argv, "prealloc"))
+		missarg("prealloc");
+
+	while (NEXT_ARG_OK()) {
+		NEXT_ARG_FWD();
+
+		if (strcmp(*argv, "type") == 0) {
+			NEXT_ARG();
+
+			if (type)
+				duparg2("type", *argv);
+
+			if (get_u32(&type, *argv, 0) || !type)
+				invarg("Invalid type", *argv);
+
+			trace->type_be32 = htonl(type << 8);
+
+		} else if (strcmp(*argv, "ns") == 0) {
+			NEXT_ARG();
+
+			if (ns_found++)
+				duparg2("ns", *argv);
+
+			if (!type)
+				missarg("type");
+
+			if (get_u16(&ns, *argv, 0))
+				invarg("Invalid namespace ID", *argv);
+
+			trace->namespace_id = htons(ns);
+
+		} else if (strcmp(*argv, "size") == 0) {
+			NEXT_ARG();
+
+			if (size)
+				duparg2("size", *argv);
+
+			if (!type)
+				missarg("type");
+			if (!ns_found)
+				missarg("ns");
+
+			if (get_u16(&size, *argv, 0) || !size)
+				invarg("Invalid size", *argv);
+
+			if (size % 4)
+				invarg("Size must be a 4-octet multiple", *argv);
+			if (size > IOAM6_TRACE_DATA_SIZE_MAX)
+				invarg("Size too big", *argv);
+
+			trace->remlen = (__u8)(size / 4);
+
+		} else {
+			break;
+		}
+	}
+
+	if (!type)
+		missarg("type");
+	if (!ns_found)
+		missarg("ns");
+	if (!size)
+		missarg("size");
+
+	if (rta_addattr_l(rta, len, IOAM6_IPTUNNEL_TRACE, trace,
+			  sizeof(*trace))) {
+		free(trace);
+		return -1;
+	}
+
+	*argcp = argc + 1;
+	*argvp = argv - 1;
+
+	free(trace);
+	return 0;
+}
+
 struct lwt_x {
 	struct rtattr *rta;
 	size_t len;
@@ -857,12 +1026,39 @@ static int lwt_parse_bpf(struct rtattr *rta, size_t len,
 	return 0;
 }
 
+/* for the moment, counters are always initialized to zero by the kernel; so we
+ * do not expect to parse any argument here.
+ */
+static int seg6local_fill_counters(struct rtattr *rta, size_t len, int attr)
+{
+	struct rtattr *nest;
+	int ret;
+
+	nest = rta_nest(rta, len, attr);
+
+	ret = rta_addattr64(rta, len, SEG6_LOCAL_CNT_PACKETS, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = rta_addattr64(rta, len, SEG6_LOCAL_CNT_BYTES, 0);
+	if (ret < 0)
+		return ret;
+
+	ret = rta_addattr64(rta, len, SEG6_LOCAL_CNT_ERRORS, 0);
+	if (ret < 0)
+		return ret;
+
+	rta_nest_end(rta, nest);
+	return 0;
+}
+
 static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 				 char ***argvp)
 {
-	int segs_ok = 0, hmac_ok = 0, table_ok = 0, nh4_ok = 0, nh6_ok = 0;
-	int iif_ok = 0, oif_ok = 0, action_ok = 0, srh_ok = 0, bpf_ok = 0;
-	__u32 action = 0, table, iif, oif;
+	int segs_ok = 0, hmac_ok = 0, table_ok = 0, vrftable_ok = 0;
+	int action_ok = 0, srh_ok = 0, bpf_ok = 0, counters_ok = 0;
+	int nh4_ok = 0, nh6_ok = 0, iif_ok = 0, oif_ok = 0;
+	__u32 action = 0, table, vrftable, iif, oif;
 	struct ipv6_sr_hdr *srh;
 	char **argv = *argvp;
 	int argc = *argcp;
@@ -885,8 +1081,17 @@ static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 			NEXT_ARG();
 			if (table_ok++)
 				duparg2("table", *argv);
-			rtnl_rttable_a2n(&table, *argv);
+			if (rtnl_rttable_a2n(&table, *argv))
+				invarg("invalid table id\n", *argv);
 			ret = rta_addattr32(rta, len, SEG6_LOCAL_TABLE, table);
+		} else if (strcmp(*argv, "vrftable") == 0) {
+			NEXT_ARG();
+			if (vrftable_ok++)
+				duparg2("vrftable", *argv);
+			if (rtnl_rttable_a2n(&vrftable, *argv))
+				invarg("invalid vrf table id\n", *argv);
+			ret = rta_addattr32(rta, len, SEG6_LOCAL_VRFTABLE,
+					    vrftable);
 		} else if (strcmp(*argv, "nh4") == 0) {
 			NEXT_ARG();
 			if (nh4_ok++)
@@ -917,6 +1122,11 @@ static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 			if (!oif)
 				exit(nodev(*argv));
 			ret = rta_addattr32(rta, len, SEG6_LOCAL_OIF, oif);
+		} else if (strcmp(*argv, "count") == 0) {
+			if (counters_ok++)
+				duparg2("count", *argv);
+			ret = seg6local_fill_counters(rta, len,
+						      SEG6_LOCAL_COUNTERS);
 		} else if (strcmp(*argv, "srh") == 0) {
 			NEXT_ARG();
 			if (srh_ok++)
@@ -1657,6 +1867,9 @@ int lwt_parse_encap(struct rtattr *rta, size_t len, int *argcp, char ***argvp,
 		break;
 	case LWTUNNEL_ENCAP_RPL:
 		ret = parse_encap_rpl(rta, len, &argc, &argv);
+		break;
+	case LWTUNNEL_ENCAP_IOAM6:
+		ret = parse_encap_ioam6(rta, len, &argc, &argv);
 		break;
 	default:
 		fprintf(stderr, "Error: unsupported encap type\n");

@@ -29,7 +29,7 @@
 #include <getopt.h>
 
 #include <json_writer.h>
-#include <SNAPSHOT.h>
+#include "version.h"
 #include "utils.h"
 
 int dump_zeros;
@@ -114,7 +114,7 @@ static int match(const char *id)
 		return 1;
 
 	for (i = 0; i < npatterns; i++) {
-		if (!fnmatch(patterns[i], id, 0))
+		if (!fnmatch(patterns[i], id, FNM_CASEFOLD))
 			return 1;
 	}
 	return 0;
@@ -136,8 +136,7 @@ static void load_good_table(FILE *fp)
 			buf[strlen(buf)-1] = 0;
 			if (info_source[0] && strcmp(info_source, buf+1))
 				source_mismatch = 1;
-			info_source[0] = 0;
-			strncat(info_source, buf+1, sizeof(info_source)-1);
+			strlcpy(info_source, buf + 1, sizeof(info_source));
 			continue;
 		}
 		/* idbuf is as big as buf, so this is safe */
@@ -548,17 +547,17 @@ static void usage(void)
 {
 	fprintf(stderr,
 		"Usage: nstat [OPTION] [ PATTERN [ PATTERN ] ]\n"
-		"   -h, --help		this message\n"
-		"   -a, --ignore	ignore history\n"
-		"   -d, --scan=SECS	sample every statistics every SECS\n"
-		"   -j, --json		format output in JSON\n"
-		"   -n, --nooutput	do history only\n"
-		"   -p, --pretty	pretty print\n"
-		"   -r, --reset		reset history\n"
-		"   -s, --noupdate	don't update history\n"
-		"   -t, --interval=SECS	report average over the last SECS\n"
-		"   -V, --version	output version information\n"
-		"   -z, --zeros		show entries with zero activity\n");
+		"   -h, --help          this message\n"
+		"   -a, --ignore        ignore history\n"
+		"   -d, --scan=SECS     sample every statistics every SECS\n"
+		"   -j, --json          format output in JSON\n"
+		"   -n, --nooutput      do history only\n"
+		"   -p, --pretty        pretty print\n"
+		"   -r, --reset         reset history\n"
+		"   -s, --noupdate      don't update history\n"
+		"   -t, --interval=SECS report average over the last SECS\n"
+		"   -V, --version       output version information\n"
+		"   -z, --zeros         show entries with zero activity\n");
 	exit(-1);
 }
 
@@ -621,7 +620,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'v':
 		case 'V':
-			printf("nstat utility, iproute2-ss%s\n", SNAPSHOT);
+			printf("nstat utility, iproute2-%s\n", version);
 			exit(0);
 		case 'h':
 		case '?':

@@ -261,7 +261,7 @@ static int parse_gate(struct action_util *a, int *argc_p, char ***argv_p,
 
 			if (!NEXT_ARG_OK()) {
 				explain_entry_format();
-				fprintf(stderr, "\"sched-entry\" is imcomplete\n");
+				fprintf(stderr, "\"sched-entry\" is incomplete\n");
 				free_entries(&gate_entries);
 				return -1;
 			}
@@ -270,14 +270,14 @@ static int parse_gate(struct action_util *a, int *argc_p, char ***argv_p,
 
 			if (get_gate_state(&gate_state, *argv)) {
 				explain_entry_format();
-				fprintf(stderr, "\"sched-entry\" is imcomplete\n");
+				fprintf(stderr, "\"sched-entry\" is incomplete\n");
 				free_entries(&gate_entries);
 				return -1;
 			}
 
 			if (!NEXT_ARG_OK()) {
 				explain_entry_format();
-				fprintf(stderr, "\"sched-entry\" is imcomplete\n");
+				fprintf(stderr, "\"sched-entry\" is incomplete\n");
 				free_entries(&gate_entries);
 				return -1;
 			}
@@ -287,7 +287,7 @@ static int parse_gate(struct action_util *a, int *argc_p, char ***argv_p,
 			if (get_u32(&interval, *argv, 0) &&
 			    get_time64(&interval_s64, *argv)) {
 				explain_entry_format();
-				fprintf(stderr, "\"sched-entry\" is imcomplete\n");
+				fprintf(stderr, "\"sched-entry\" is incomplete\n");
 				free_entries(&gate_entries);
 				return -1;
 			}
@@ -427,7 +427,7 @@ static int print_gate_list(struct rtattr *list)
 		__u32 index = 0, interval = 0;
 		__u8 gate_state = 0;
 		__s32 ipv = -1, maxoctets = -1;
-		char buf[22];
+		SPRINT_BUF(buf);
 
 		parse_rtattr_nested(tb, TCA_GATE_ENTRY_MAX, item);
 
@@ -465,10 +465,8 @@ static int print_gate_list(struct rtattr *list)
 		}
 
 		if (maxoctets != -1) {
-			memset(buf, 0, sizeof(buf));
-			print_uint(PRINT_JSON, "max_octets", NULL, maxoctets);
-			print_string(PRINT_FP, NULL, "\t max-octets %s",
-				     sprint_size(maxoctets, buf));
+			print_size(PRINT_ANY, "max_octets", "\t max-octets %s",
+				   maxoctets);
 		} else {
 			print_string(PRINT_FP, NULL,
 				     "\t max-octets %s", "wildcard");
@@ -492,7 +490,7 @@ static int print_gate(struct action_util *au, FILE *f, struct rtattr *arg)
 	__s64 base_time = 0;
 	__s64 cycle_time = 0;
 	__s64 cycle_time_ext = 0;
-	char buf[22];
+	SPRINT_BUF(buf);
 	int prio = -1;
 
 	if (arg == NULL)

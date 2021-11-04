@@ -39,6 +39,10 @@
 
 #define PEDITKINDSIZ 16
 
+enum m_pedit_flags {
+	PEDIT_ALLOW_DEC = 1<<0,
+};
+
 struct m_pedit_key {
 	//掩码
 	__u32           mask;  /* AND */
@@ -84,5 +88,5 @@ struct m_pedit_util {
 
 int parse_cmd(int *argc_p, char ***argv_p, __u32 len, int type,
 	      __u32 retain,
-	      struct m_pedit_sel *sel, struct m_pedit_key *tkey);
+	      struct m_pedit_sel *sel, struct m_pedit_key *tkey, int flags);
 #endif

@@ -34,9 +34,6 @@
 #include "namespace.h"
 
 #define IPLINK_IOCTL_COMPAT	1
-#ifndef LIBDIR
-#define LIBDIR "/usr/lib"
-#endif
 
 #ifndef GSO_MAX_SIZE
 #define GSO_MAX_SIZE		65536
@@ -49,11 +46,25 @@
 static void usage(void) __attribute__((noreturn));
 static int iplink_have_newlink(void);
 
+void iplink_types_usage(void)
+{
+	/* Remember to add new entry here if new type is added. */
+	fprintf(stderr,
+		"TYPE := { bareudp | bond | bond_slave | bridge | bridge_slave |\n"
+		"          dummy | erspan | geneve | gre | gretap | ifb |\n"
+		"          ip6erspan | ip6gre | ip6gretap | ip6tnl |\n"
+		"          ipip | ipoib | ipvlan | ipvtap |\n"
+		"          macsec | macvlan | macvtap |\n"
+		"          netdevsim | nlmon | rmnet | sit | team | team_slave |\n"
+		"          vcan | veth | vlan | vrf | vti | vxcan | vxlan | wwan |\n"
+		"          xfrm }\n");
+}
+
 void iplink_usage(void)
 {
 	if (iplink_have_newlink()) {
 		fprintf(stderr,
-			"Usage: ip link add [link DEV] [ name ] NAME\n"
+			"Usage: ip link add [link DEV | parentdev NAME] [ name ] NAME\n"
 			"		    [ txqueuelen PACKETS ]\n"
 			"		    [ address LLADDR ]\n"
 			"		    [ broadcast LLADDR ]\n"
@@ -86,26 +97,27 @@ void iplink_usage(void)
 		"		[ mtu MTU ]\n"
 		"		[ netns { PID | NAME } ]\n"
 		"		[ link-netns NAME | link-netnsid ID ]\n"
-		"			[ alias NAME ]\n"
-		"			[ vf NUM [ mac LLADDR ]\n"
-		"				 [ vlan VLANID [ qos VLAN-QOS ] [ proto VLAN-PROTO ] ]\n"
-		"				 [ rate TXRATE ]\n"
-		"				 [ max_tx_rate TXRATE ]\n"
-		"				 [ min_tx_rate TXRATE ]\n"
-		"				 [ spoofchk { on | off} ]\n"
-		"				 [ query_rss { on | off} ]\n"
-		"				 [ state { auto | enable | disable} ] ]\n"
-		"				 [ trust { on | off} ] ]\n"
-		"				 [ node_guid { eui64 } ]\n"
-		"				 [ port_guid { eui64 } ]\n"
-		"			[ { xdp | xdpgeneric | xdpdrv | xdpoffload } { off |\n"
-		"				  object FILE [ section NAME ] [ verbose ] |\n"
-		"				  pinned FILE } ]\n"
-		"			[ master DEVICE ][ vrf NAME ]\n"
-		"			[ nomaster ]\n"
-		"			[ addrgenmode { eui64 | none | stable_secret | random } ]\n"
-		"			[ protodown { on | off } ]\n"
-		"			[ gso_max_size BYTES ] | [ gso_max_segs PACKETS ]\n"
+		"		[ alias NAME ]\n"
+		"		[ vf NUM [ mac LLADDR ]\n"
+		"			 [ vlan VLANID [ qos VLAN-QOS ] [ proto VLAN-PROTO ] ]\n"
+		"			 [ rate TXRATE ]\n"
+		"			 [ max_tx_rate TXRATE ]\n"
+		"			 [ min_tx_rate TXRATE ]\n"
+		"			 [ spoofchk { on | off} ]\n"
+		"			 [ query_rss { on | off} ]\n"
+		"			 [ state { auto | enable | disable} ]\n"
+		"			 [ trust { on | off} ]\n"
+		"			 [ node_guid EUI64 ]\n"
+		"			 [ port_guid EUI64 ] ]\n"
+		"		[ { xdp | xdpgeneric | xdpdrv | xdpoffload } { off |\n"
+		"			  object FILE [ section NAME ] [ verbose ] |\n"
+		"			  pinned FILE } ]\n"
+		"		[ master DEVICE ][ vrf NAME ]\n"
+		"		[ nomaster ]\n"
+		"		[ addrgenmode { eui64 | none | stable_secret | random } ]\n"
+		"		[ protodown { on | off } ]\n"
+		"		[ protodown_reason PREASON { on | off } ]\n"
+		"		[ gso_max_size BYTES ] | [ gso_max_segs PACKETS ]\n"
 		"\n"
 		"	ip link show [ DEVICE | group GROUP ] [up] [master DEV] [vrf NAME] [type TYPE]\n"
 		"\n"
@@ -119,13 +131,8 @@ void iplink_usage(void)
 		fprintf(stderr,
 			"\n"
 			"	ip link help [ TYPE ]\n"
-			"\n"
-			"TYPE := { vlan | veth | vcan | vxcan | dummy | ifb | macvlan | macvtap |\n"
-			"	   bridge | bond | team | ipoib | ip6tnl | ipip | sit | vxlan |\n"
-			"	   gre | gretap | erspan | ip6gre | ip6gretap | ip6erspan |\n"
-			"	   vti | nlmon | team_slave | bond_slave | bridge_slave |\n"
-			"	   ipvlan | ipvtap | geneve | vrf | macsec | netdevsim | rmnet |\n"
-			"	   xfrm }\n");
+			"\n");
+		iplink_types_usage();
 	}
 	exit(-1);
 }
@@ -157,7 +164,7 @@ struct link_util *get_link_kind(const char *id)
 		if (strcmp(l->id, id) == 0)
 			return l;
 
-	snprintf(buf, sizeof(buf), LIBDIR "/ip/link_%s.so", id);
+	snprintf(buf, sizeof(buf), "%s/link_%s.so", get_ip_lib_dir(), id);
 	dlh = dlopen(buf, RTLD_LAZY);
 	if (dlh == NULL) {
 		/* look in current binary, only open once */
@@ -352,6 +359,7 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 	int len, argc = *argcp;
 	char **argv = *argvp;
 	struct rtattr *vfinfo;
+	int ret;
 
 	tivt.min_tx_rate = -1;
 	tivt.max_tx_rate = -1;
@@ -467,12 +475,9 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 			struct ifla_vf_spoofchk ivs;
 
 			NEXT_ARG();
-			if (matches(*argv, "on") == 0)
-				ivs.setting = 1;
-			else if (matches(*argv, "off") == 0)
-				ivs.setting = 0;
-			else
-				return on_off("spoofchk", *argv);
+			ivs.setting = parse_on_off("spoofchk", *argv, &ret);
+			if (ret)
+				return ret;
 			ivs.vf = vf;
 			addattr_l(&req->n, sizeof(*req), IFLA_VF_SPOOFCHK,
 				  &ivs, sizeof(ivs));
@@ -481,12 +486,9 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 			struct ifla_vf_rss_query_en ivs;
 
 			NEXT_ARG();
-			if (matches(*argv, "on") == 0)
-				ivs.setting = 1;
-			else if (matches(*argv, "off") == 0)
-				ivs.setting = 0;
-			else
-				return on_off("query_rss", *argv);
+			ivs.setting = parse_on_off("query_rss", *argv, &ret);
+			if (ret)
+				return ret;
 			ivs.vf = vf;
 			addattr_l(&req->n, sizeof(*req), IFLA_VF_RSS_QUERY_EN,
 				  &ivs, sizeof(ivs));
@@ -495,12 +497,9 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 			struct ifla_vf_trust ivt;
 
 			NEXT_ARG();
-			if (matches(*argv, "on") == 0)
-				ivt.setting = 1;
-			else if (matches(*argv, "off") == 0)
-				ivt.setting = 0;
-			else
-				invarg("Invalid \"trust\" value\n", *argv);
+			ivt.setting = parse_on_off("trust", *argv, &ret);
+			if (ret)
+				return ret;
 			ivt.vf = vf;
 			addattr_l(&req->n, sizeof(*req), IFLA_VF_TRUST,
 				  &ivt, sizeof(ivt));
@@ -598,6 +597,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 	int index = 0;
 	int group = -1;
 	int addr_len = 0;
+	int err;
 
 	ret = argc;
 
@@ -747,12 +747,9 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			int carrier;
 
 			NEXT_ARG();
-			if (strcmp(*argv, "on") == 0)
-				carrier = 1;
-			else if (strcmp(*argv, "off") == 0)
-				carrier = 0;
-			else
-				return on_off("carrier", *argv);
+			carrier = parse_on_off("carrier", *argv, &err);
+			if (err)
+				return err;
 
 			addattr8(&req->n, sizeof(*req), IFLA_CARRIER, carrier);
 		} else if (strcmp(*argv, "vf") == 0) {
@@ -909,14 +906,33 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			unsigned int proto_down;
 
 			NEXT_ARG();
-			if (strcmp(*argv, "on") == 0)
-				proto_down = 1;
-			else if (strcmp(*argv, "off") == 0)
-				proto_down = 0;
-			else
-				return on_off("protodown", *argv);
+			proto_down = parse_on_off("protodown", *argv, &err);
+			if (err)
+				return err;
 			addattr8(&req->n, sizeof(*req), IFLA_PROTO_DOWN,
 				 proto_down);
+		} else if (strcmp(*argv, "protodown_reason") == 0) {
+			struct rtattr *pr;
+			__u32 preason = 0, prvalue = 0, prmask = 0;
+
+			NEXT_ARG();
+			if (protodown_reason_a2n(&preason, *argv))
+				invarg("invalid protodown reason\n", *argv);
+			NEXT_ARG();
+			prmask = 1 << preason;
+			if (matches(*argv, "on") == 0)
+				prvalue |= prmask;
+			else if (matches(*argv, "off") == 0)
+				prvalue &= ~prmask;
+			else
+				return on_off("protodown_reason", *argv);
+			pr = addattr_nest(&req->n, sizeof(*req),
+					  IFLA_PROTO_DOWN_REASON | NLA_F_NESTED);
+			addattr32(&req->n, sizeof(*req),
+				  IFLA_PROTO_DOWN_REASON_MASK, prmask);
+			addattr32(&req->n, sizeof(*req),
+				  IFLA_PROTO_DOWN_REASON_VALUE, prvalue);
+			addattr_nest_end(&req->n, pr);
 		} else if (strcmp(*argv, "gso_max_size") == 0) {
 			unsigned int max_size;
 
@@ -937,6 +953,10 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 				       *argv);
 			addattr32(&req->n, sizeof(*req),
 				  IFLA_GSO_MAX_SEGS, max_segs);
+		} else if (strcmp(*argv, "parentdev") == 0) {
+			NEXT_ARG();
+			addattr_l(&req->n, sizeof(*req), IFLA_PARENT_DEV_NAME,
+				  *argv, strlen(*argv) + 1);
 		} else {
 			if (matches(*argv, "help") == 0)
 				usage();
