@@ -1383,6 +1383,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 	}
 
 	while (argc > 0) {
+	    /*设置flower规则对应的classid*/
 		if (matches(*argv, "classid") == 0 ||
 		    matches(*argv, "flowid") == 0) {
 			unsigned int handle;

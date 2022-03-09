@@ -96,6 +96,7 @@ static int get_port_from_argv(struct rd *rd, uint32_t *port,
 	return 0;
 }
 
+/*创建dev_map*/
 static struct dev_map *dev_map_alloc(const char *dev_name)
 {
 	struct dev_map *dev_map;
@@ -484,6 +485,7 @@ int rd_attr_check(const struct nlattr *attr, int *typep)
 	return MNL_CB_OK;
 }
 
+/*netlink消息校验*/
 int rd_attr_cb(const struct nlattr *attr, void *data)
 {
 	const struct nlattr **tb = data;
@@ -517,6 +519,7 @@ int rd_dev_init_cb(const struct nlmsghdr *nlh, void *data)
 		return MNL_CB_ERROR;
 	}
 
+	/*rdma设备名称*/
 	dev_name = mnl_attr_get_str(tb[RDMA_NLDEV_ATTR_DEV_NAME]);
 
 	dev_map = dev_map_alloc(dev_name);
@@ -566,6 +569,7 @@ int rd_exec_link(struct rd *rd, int (*cb)(struct rd *rd), bool strict_port)
 
 	new_json_obj(rd->json_output);
 	if (rd_no_arg(rd)) {
+	    /*遍历所有dev,并调用cb输出*/
 		list_for_each_entry(dev_map, &rd->dev_map_list, list) {
 			rd->dev_idx = dev_map->idx;
 			port = (strict_port) ? 1 : 0;
@@ -653,8 +657,10 @@ int rd_exec_cmd(struct rd *rd, const struct rd_cmd *cmds, const char *str)
 
 	/* First argument in objs table is default variant */
 	if (rd_no_arg(rd))
+	    /*没有参数，执行首个函数*/
 		return cmds->func(rd);
 
+	/*遍历并执行首个匹配的cmd*/
 	for (c = cmds + 1; c->cmd; ++c) {
 		if (rd_argv_match(rd, c->cmd)) {
 			/* Move to next argument */
@@ -667,11 +673,14 @@ int rd_exec_cmd(struct rd *rd, const struct rd_cmd *cmds, const char *str)
 	return 0;
 }
 
-void rd_prepare_msg(struct rd *rd, uint32_t cmd, uint32_t *seq, uint16_t flags)
+/*填充消息buffer*/
+void rd_prepare_msg(struct rd *rd, uint32_t cmd, uint32_t *seq, uint16_t flags/*nlmsg标记*/)
 {
+    /*以当前时间做为seq*/
 	*seq = time(NULL);
 
 	rd->nlh = mnl_nlmsg_put_header(rd->buff);
+	/*合成msg_type*/
 	rd->nlh->nlmsg_type = RDMA_NL_GET_TYPE(RDMA_NL_NLDEV, cmd);
 	rd->nlh->nlmsg_seq = *seq;
 	rd->nlh->nlmsg_flags = flags;

@@ -76,6 +76,7 @@ static void encap_type_usage(void)
 	exit(-1);
 }
 
+/*按名称映射encap type*/
 static int read_encap_type(const char *name)
 {
 	if (strcmp(name, "mpls") == 0)
@@ -111,6 +112,7 @@ static void print_srh(FILE *fp, struct ipv6_sr_hdr *srh)
 	else
 		fprintf(fp, "segs %d [ ", srh->first_segment + 1);
 
+	/*自first_segment进行seg显示*/
 	for (i = srh->first_segment; i >= 0; i--)
 		print_color_string(PRINT_ANY, COLOR_INET6,
 				   NULL, "%s ",
@@ -121,6 +123,7 @@ static void print_srh(FILE *fp, struct ipv6_sr_hdr *srh)
 	else
 		fprintf(fp, "] ");
 
+	/*如果有hmac标记，则进行hmac显示*/
 	if (sr_has_hmac(srh)) {
 		unsigned int offset = ((srh->hdrlen + 1) << 3) - 40;
 		struct sr6_tlv_hmac *tlv;
@@ -145,6 +148,7 @@ static const char *format_seg6mode_type(int mode)
 	return seg6_mode_types[mode];
 }
 
+/*必须为已知的mode*/
 static int read_seg6mode_type(const char *mode)
 {
 	int i;
@@ -167,10 +171,12 @@ static void print_encap_seg6(FILE *fp, struct rtattr *encap)
 	if (!tb[SEG6_IPTUNNEL_SRH])
 		return;
 
+	/*显示seg6对应的mode*/
 	tuninfo = RTA_DATA(tb[SEG6_IPTUNNEL_SRH]);
 	print_string(PRINT_ANY, "mode",
 		     "mode %s ", format_seg6mode_type(tuninfo->mode));
 
+	/*显示srh头部信息*/
 	print_srh(fp, tuninfo->srh);
 }
 
@@ -688,6 +694,7 @@ void lwt_print_encap(FILE *fp, struct rtattr *encap_type,
 	}
 }
 
+/*解析segbuf,生成ipv6_sr_hdr*/
 static struct ipv6_sr_hdr *parse_srh(char *segbuf, int hmac, bool encap)
 {
 	struct ipv6_sr_hdr *srh;
@@ -697,6 +704,7 @@ static struct ipv6_sr_hdr *parse_srh(char *segbuf, int hmac, bool encap)
 	int i;
 
 	s = segbuf;
+	/*计算','数目，加1后，获得segs条目数*/
 	for (i = 0; *s; *s++ == ',' ? i++ : *s);
 	nsegs = i + 1;
 
@@ -712,13 +720,14 @@ static struct ipv6_sr_hdr *parse_srh(char *segbuf, int hmac, bool encap)
 	memset(srh, 0, srhlen);
 
 	srh->hdrlen = (srhlen >> 3) - 1;
-	srh->type = 4;
+	srh->type = 4;/*指明类型为：IPV6_SRCRT_TYPE_4*/
 	srh->segments_left = nsegs - 1;
 	srh->first_segment = nsegs - 1;
 
 	if (hmac)
 		srh->flags |= SR6_FLAG1_HMAC;
 
+	/*以','号划分segment,并将其内容转换为ipv6地址，填充到srh->segments中（逆序排列）*/
 	i = srh->first_segment;
 	for (s = strtok(segbuf, ","); s; s = strtok(NULL, ",")) {
 		inet_prefix addr;
@@ -728,6 +737,7 @@ static struct ipv6_sr_hdr *parse_srh(char *segbuf, int hmac, bool encap)
 		i--;
 	}
 
+	/*填充hmac*/
 	if (hmac) {
 		struct sr6_tlv_hmac *tlv;
 
@@ -754,11 +764,14 @@ static int parse_encap_seg6(struct rtattr *rta, size_t len, int *argcp,
 	int ret = 0;
 	int srhlen;
 
+	/*解析 mode,segs,hmac三种命令*/
 	while (argc > 0) {
 		if (strcmp(*argv, "mode") == 0) {
 			NEXT_ARG();
 			if (mode_ok++)
+			    /*重复设置mode,报错*/
 				duparg2("mode", *argv);
+			/*检查encap方式*/
 			encap = read_seg6mode_type(*argv);
 			if (encap < 0)
 				invarg("\"mode\" value is invalid\n", *argv);
@@ -767,6 +780,7 @@ static int parse_encap_seg6(struct rtattr *rta, size_t len, int *argcp,
 			if (segs_ok++)
 				duparg2("segs", *argv);
 			if (encap == -1)
+			    /*必须先配置mode,再配置segs*/
 				invarg("\"segs\" provided before \"mode\"\n",
 				       *argv);
 
@@ -775,6 +789,7 @@ static int parse_encap_seg6(struct rtattr *rta, size_t len, int *argcp,
 			NEXT_ARG();
 			if (hmac_ok++)
 				duparg2("hmac", *argv);
+			/*填充配置的hmac*/
 			get_u32(&hmac, *argv, 0);
 		} else {
 			break;
@@ -785,6 +800,7 @@ static int parse_encap_seg6(struct rtattr *rta, size_t len, int *argcp,
 	srh = parse_srh(segbuf, hmac, encap);
 	srhlen = (srh->hdrlen + 1) << 3;
 
+	/*申请tuninfo,并利用解析的segbuf结果，填充tuninfo->srh*/
 	tuninfo = malloc(sizeof(*tuninfo) + srhlen);
 	memset(tuninfo, 0, sizeof(*tuninfo) + srhlen);
 
@@ -792,6 +808,7 @@ static int parse_encap_seg6(struct rtattr *rta, size_t len, int *argcp,
 
 	memcpy(tuninfo->srh, srh, srhlen);
 
+	/*通过SEG6_IPTUNNEL_SRH属性指明tuninfo*/
 	if (rta_addattr_l(rta, len, SEG6_IPTUNNEL_SRH, tuninfo,
 			  sizeof(*tuninfo) + srhlen)) {
 		ret = -1;
@@ -1556,6 +1573,7 @@ static int parse_encap_ila(struct rtattr *rta, size_t len,
 	char **argv = *argvp;
 	int ret = 0;
 
+	/*解析locator*/
 	if (get_addr64(&locator, *argv) < 0) {
 		fprintf(stderr, "Bad locator: %s\n", *argv);
 		exit(1);
@@ -1563,11 +1581,13 @@ static int parse_encap_ila(struct rtattr *rta, size_t len,
 
 	argc--; argv++;
 
+	/*向消息中添加locator*/
 	if (rta_addattr64(rta, len, ILA_ATTR_LOCATOR, locator))
 		return -1;
 
 	while (argc > 0) {
 		if (strcmp(*argv, "csum-mode") == 0) {
+		    /*解析checksum模式*/
 			int csum_mode;
 
 			NEXT_ARG();
@@ -1582,6 +1602,7 @@ static int parse_encap_ila(struct rtattr *rta, size_t len,
 
 			argc--; argv++;
 		} else if (strcmp(*argv, "ident-type") == 0) {
+		    /*解析id类型*/
 			int ident_type;
 
 			NEXT_ARG();
@@ -1596,6 +1617,7 @@ static int parse_encap_ila(struct rtattr *rta, size_t len,
 
 			argc--; argv++;
 		} else if (strcmp(*argv, "hook-type") == 0) {
+		    /*解析hook类型*/
 			int hook_type;
 
 			NEXT_ARG();
@@ -1821,7 +1843,7 @@ static int parse_encap_bpf(struct rtattr *rta, size_t len, int *argcp,
 }
 
 int lwt_parse_encap(struct rtattr *rta, size_t len, int *argcp, char ***argvp,
-		    int encap_attr, int encap_type_attr)
+		    int encap_attr, int encap_type_attr/*消息type*/)
 {
 	struct rtattr *nest;
 	int argc = *argcp;
@@ -1830,6 +1852,7 @@ int lwt_parse_encap(struct rtattr *rta, size_t len, int *argcp, char ***argvp,
 	int ret = 0;
 
 	NEXT_ARG();
+	/*封装类型*/
 	type = read_encap_type(*argv);
 	if (!type)
 		invarg("\"encap type\" value is invalid\n", *argv);
@@ -1850,6 +1873,7 @@ int lwt_parse_encap(struct rtattr *rta, size_t len, int *argcp, char ***argvp,
 		ret = parse_encap_ip(rta, len, &argc, &argv);
 		break;
 	case LWTUNNEL_ENCAP_ILA:
+        /*解析ila方式的encap*/
 		ret = parse_encap_ila(rta, len, &argc, &argv);
 		break;
 	case LWTUNNEL_ENCAP_IP6:
@@ -1860,6 +1884,7 @@ int lwt_parse_encap(struct rtattr *rta, size_t len, int *argcp, char ***argvp,
 			exit(-1);
 		break;
 	case LWTUNNEL_ENCAP_SEG6:
+	    /*解析seg6配置命令，并填充属性*/
 		ret = parse_encap_seg6(rta, len, &argc, &argv);
 		break;
 	case LWTUNNEL_ENCAP_SEG6_LOCAL:

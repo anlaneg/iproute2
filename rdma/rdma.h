@@ -49,18 +49,22 @@ struct filter_entry {
 
 struct dev_map {
 	struct list_head list;
+	/*设备名称*/
 	char *dev_name;
 	uint32_t num_ports;
+	/*设备index*/
 	uint32_t idx;
 };
 
 struct rd {
 	int argc;
 	char **argv;
+	/*程序名称*/
 	char *filename;
 	uint8_t show_details:1;
 	uint8_t show_driver_details:1;
 	uint8_t show_raw:1;
+	/*当前系统所有ib设备*/
 	struct list_head dev_map_list;
 	uint32_t dev_idx;
 	uint32_t port_idx;
@@ -72,12 +76,16 @@ struct rd {
 	int pretty_output;
 	bool suppress_errors;
 	struct list_head filter_list;
+	/*link名称*/
 	char *link_name;
+	/*link类型*/
 	char *link_type;
 };
 
 struct rd_cmd {
+    /*命令字*/
 	const char *cmd;
+	/*命令处理函数*/
 	int (*func)(struct rd *rd);
 };
 

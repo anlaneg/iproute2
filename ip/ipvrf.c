@@ -582,12 +582,14 @@ static int ipvrf_show(int argc, char **argv)
 
 	vrf_filter.kind = "vrf";
 
+	/*显示用法*/
 	if (argc > 1)
 		usage();
 
 	if (argc == 1) {
 		__u32 tb_id;
 
+		/*通过table名称转换table id*/
 		tb_id = ipvrf_get_table(argv[0]);
 		if (!tb_id) {
 			fprintf(stderr, "Invalid VRF\n");

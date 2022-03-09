@@ -47,24 +47,30 @@ static int get_u32_handle(__u32 *handle, const char *str)
 	char *tmp = strchr(str, ':');
 
 	if (tmp == NULL) {
+	    /*字符串中不包含':',则数字必须以0x开头*/
 		if (memcmp("0x", str, 2) == 0)
 			return get_u32(handle, str, 16);
 		return -1;
 	}
+	/*取htid,其值不得大于0x1000*/
 	htid = strtoul(str, &tmp, 16);
 	if (tmp == str && *str != ':' && *str != 0)
 		return -1;
 	if (htid >= 0x1000)
 		return -1;
 	if (*tmp) {
+	    /*跳过':'号*/
 		str = tmp + 1;
+		/*取hash,其值不得大于0x100*/
 		hash = strtoul(str, &tmp, 16);
 		if (tmp == str && *str != ':' && *str != 0)
 			return -1;
 		if (hash >= 0x100)
 			return -1;
 		if (*tmp) {
+		    /*跳过':'号*/
 			str = tmp + 1;
+			/*取nodeid,其值不得大于0x1000*/
 			nodeid = strtoul(str, &tmp, 16);
 			if (tmp == str && *str != 0)
 				return -1;
@@ -72,6 +78,7 @@ static int get_u32_handle(__u32 *handle, const char *str)
 				return -1;
 		}
 	}
+	/*构造内容:< 0x1000(占12bit),< 0x100（占8bit),< 0x1000(占12bit)*/
 	*handle = (htid<<20)|(hash<<12)|nodeid;
 	return 0;
 }
@@ -334,6 +341,7 @@ static int parse_ip_addr(int *argc_p, char ***argv_p, struct tc_u32_sel *sel,
 	if (argc < 1)
 		return -1;
 
+	/*转换地址*/
 	if (get_prefix_1(&addr, *argv, AF_INET))
 		return -1;
 	argc--; argv++;
@@ -690,6 +698,7 @@ static int parse_mark(int *argc_p, char ***argv_p, struct nlmsghdr *n)
 	return res;
 }
 
+/*填充selector*/
 static int parse_selector(int *argc_p, char ***argv_p,
 			  struct tc_u32_sel *sel, struct nlmsghdr *n)
 {
@@ -985,6 +994,7 @@ static __u32 u32_hash_fold(struct tc_u32_key *key)
 	return ntohl(key->val & key->mask) >> fshift;
 }
 
+/*u32选项解析*/
 static int u32_parse_opt(struct filter_util *qu, char *handle,
 			 int argc, char **argv, struct nlmsghdr *n)
 {
@@ -1000,6 +1010,7 @@ static int u32_parse_opt(struct filter_util *qu, char *handle,
 	__u32 order = 0;
 	__u32 flags = 0;
 
+	/*填充handle*/
 	if (handle && get_u32_handle(&t->tcm_handle, handle)) {
 		fprintf(stderr, "Illegal filter ID\n");
 		return -1;
@@ -1048,6 +1059,7 @@ static int u32_parse_opt(struct filter_util *qu, char *handle,
 			unsigned int divisor;
 
 			NEXT_ARG();
+			/*取divisor,且其值不得大于0x100,且必须为2的N次方*/
 			if (get_unsigned(&divisor, *argv, 0) ||
 			    divisor == 0 ||
 			    divisor > 0x100 || ((divisor - 1) & divisor)) {
@@ -1082,6 +1094,7 @@ static int u32_parse_opt(struct filter_util *qu, char *handle,
 				fprintf(stderr, "Illegal \"ht\"\n");
 				return -1;
 			}
+			/*指定ht时，不得配置node*/
 			if (handle && TC_U32_NODE(ht)) {
 				fprintf(stderr, "\"ht\" must be a hash table.\n");
 				return -1;

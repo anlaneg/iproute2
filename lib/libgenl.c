@@ -144,6 +144,7 @@ int genl_init_handle(struct rtnl_handle *grth, const char *family,
 		     int *genl_family)
 {
 	if (*genl_family >= 0)
+	    /*已设置，直接返回*/
 		return 0;
 
 	if (rtnl_open_byproto(grth, 0, NETLINK_GENERIC) < 0) {
@@ -151,6 +152,7 @@ int genl_init_handle(struct rtnl_handle *grth, const char *family,
 		return -1;
 	}
 
+	/*查询family对应的id*/
 	*genl_family = genl_resolve_family(grth, family);
 	if (*genl_family < 0)
 		return -1;

@@ -986,6 +986,7 @@ static int parse_one_nh(struct nlmsghdr *n, struct rtmsg *r,
 
 	while (++argv, --argc > 0) {
 		if (strcmp(*argv, "via") == 0) {
+		    /*下一跳地址*/
 			inet_prefix addr;
 			int family;
 
@@ -998,6 +999,8 @@ static int parse_one_nh(struct nlmsghdr *n, struct rtmsg *r,
 			get_addr(&addr, *argv, family);
 			if (r->rtm_family == AF_UNSPEC)
 				r->rtm_family = addr.family;
+
+			/*解析via网关地址*/
 			if (addr.family == r->rtm_family) {
 				if (rta_addattr_l(rta, len, RTA_GATEWAY,
 						  &addr.data, addr.bytelen))
@@ -1011,20 +1014,25 @@ static int parse_one_nh(struct nlmsghdr *n, struct rtmsg *r,
 				rtnh->rtnh_len += RTA_SPACE(addr.bytelen + 2);
 			}
 		} else if (strcmp(*argv, "dev") == 0) {
+		    /*解析下一跳对应出接口设备*/
 			NEXT_ARG();
 			rtnh->rtnh_ifindex = ll_name_to_index(*argv);
 			if (!rtnh->rtnh_ifindex)
 				return nodev(*argv);
 		} else if (strcmp(*argv, "weight") == 0) {
+		    /*通过weight指定权重*/
 			unsigned int w;
 
 			NEXT_ARG();
 			if (get_unsigned(&w, *argv, 0) || w == 0 || w > 256)
+			    /*权重在0-256之间*/
 				invarg("\"weight\" is invalid\n", *argv);
+			/*权重总是减一*/
 			rtnh->rtnh_hops = w - 1;
 		} else if (strcmp(*argv, "onlink") == 0) {
 			rtnh->rtnh_flags |= RTNH_F_ONLINK;
 		} else if (matches(*argv, "realms") == 0) {
+		    /*指定tclassid*/
 			__u32 realm;
 
 			NEXT_ARG();
@@ -1034,6 +1042,7 @@ static int parse_one_nh(struct nlmsghdr *n, struct rtmsg *r,
 				return -1;
 			rtnh->rtnh_len += sizeof(struct rtattr) + 4;
 		} else if (strcmp(*argv, "encap") == 0) {
+		    /*encap action解析*/
 			int old_len = rta->rta_len;
 
 			if (lwt_parse_encap(rta, len, &argc, &argv,
@@ -1041,6 +1050,7 @@ static int parse_one_nh(struct nlmsghdr *n, struct rtmsg *r,
 				return -1;
 			rtnh->rtnh_len += rta->rta_len - old_len;
 		} else if (strcmp(*argv, "as") == 0) {
+		    /*目标网段*/
 			inet_prefix addr;
 
 			NEXT_ARG();
@@ -1071,6 +1081,7 @@ static int parse_nexthops(struct nlmsghdr *n, struct rtmsg *r,
 	rtnh = RTA_DATA(rta);
 
 	while (argc > 0) {
+	    /*必须指明为nexthop*/
 		if (strcmp(*argv, "nexthop") != 0) {
 			fprintf(stderr, "Error: \"nexthop\" or end of line is expected instead of \"%s\"\n", *argv);
 			exit(-1);
@@ -1082,6 +1093,7 @@ static int parse_nexthops(struct nlmsghdr *n, struct rtmsg *r,
 		memset(rtnh, 0, sizeof(*rtnh));
 		rtnh->rtnh_len = sizeof(*rtnh);
 		rta->rta_len += rtnh->rtnh_len;
+		/*解析下一跳*/
 		if (parse_one_nh(n, r, rta, 4096, rtnh, &argc, &argv)) {
 			fprintf(stderr, "Error: cannot parse nexthop\n");
 			exit(-1);
@@ -1090,11 +1102,13 @@ static int parse_nexthops(struct nlmsghdr *n, struct rtmsg *r,
 	}
 
 	if (rta->rta_len > RTA_LENGTH(0))
+	    /*下一跳有多个，添加multipath*/
 		return addattr_l(n, 4096, RTA_MULTIPATH,
 				 RTA_DATA(rta), RTA_PAYLOAD(rta));
 	return 0;
 }
 
+/*路由操作 添加/删除*/
 static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 {
 	struct {
@@ -1104,9 +1118,11 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg)),
 		.n.nlmsg_flags = NLM_F_REQUEST | flags,
-		.n.nlmsg_type = cmd,/*路由请求类型*/
+		/*路由请求类型*/
+		.n.nlmsg_type = cmd,
 		.r.rtm_family = preferred_family,
-		.r.rtm_table = RT_TABLE_MAIN,/*默认加入到main表中*/
+		/*默认加入到main表中*/
+		.r.rtm_table = RT_TABLE_MAIN,
 		.r.rtm_scope = RT_SCOPE_NOWHERE,
 	};
 	char  mxbuf[256];
@@ -1133,7 +1149,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "src") == 0) {
-		    /*指定prefsrc地址*/
+		    /*指定prefsrc地址，这个地址为命中此路由后，优选的源地址*/
 			inet_prefix addr;
 
 			NEXT_ARG();
@@ -1193,6 +1209,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 			req.r.rtm_src_len = addr.bitlen;
 		} else if (strcmp(*argv, "tos") == 0 ||
 			   matches(*argv, "dsfield") == 0) {
+		    /*指定tos*/
 			__u32 tos;
 
 			NEXT_ARG();
@@ -1200,6 +1217,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"tos\" value is invalid\n", *argv);
 			req.r.rtm_tos = tos;
 		} else if (strcmp(*argv, "expires") == 0) {
+		    /*过期时间*/
 			__u32 expires;
 
 			NEXT_ARG();
@@ -1247,6 +1265,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"hoplimit\" value is invalid\n", *argv);
 			rta_addattr32(mxrta, sizeof(mxbuf), RTAX_HOPLIMIT, hoplimit);
 		} else if (strcmp(*argv, "advmss") == 0) {
+		    /*设置建议采用的mss值*/
 			unsigned int mss;
 
 			NEXT_ARG();
@@ -1393,6 +1412,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"ssthresh\" value is invalid\n", *argv);
 			rta_addattr32(mxrta, sizeof(mxbuf), RTAX_SSTHRESH, win);
 		} else if (matches(*argv, "realms") == 0) {
+		    /*指定flow classid*/
 			__u32 realm;
 
 			NEXT_ARG();
@@ -1400,11 +1420,13 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"realm\" value is invalid\n", *argv);
 			addattr32(&req.n, sizeof(req), RTA_FLOW, realm);
 		} else if (strcmp(*argv, "onlink") == 0) {
+		    /*添加onlink标记*/
 			req.r.rtm_flags |= RTNH_F_ONLINK;
 		} else if (strcmp(*argv, "nexthop") == 0) {
 			nhs_ok = 1;
 			break;
 		} else if (!strcmp(*argv, "nhid")) {
+		    /*指定下一跳的id,kernel将通过引用获得下一跳信息*/
 			NEXT_ARG();
 			if (get_u32(&nhid, *argv, 0))
 				invarg("\"id\" value is invalid\n", *argv);
@@ -1463,6 +1485,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"pref\" value is invalid\n", *argv);
 			addattr8(&req.n, sizeof(req), RTA_PREF, pref);
 		} else if (strcmp(*argv, "encap") == 0) {
+		    /*路由匹配进行encap action*/
 			char buf[1024];
 			struct rtattr *rta = (void *)buf;
 
@@ -1547,6 +1570,7 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 		addattr_l(&req.n, sizeof(req), RTA_METRICS, RTA_DATA(mxrta), RTA_PAYLOAD(mxrta));
 	}
 
+	/*解析多个下一跳，并填充*/
 	if (nhs_ok && parse_nexthops(&req.n, &req.r, argc, argv))
 		return -1;
 

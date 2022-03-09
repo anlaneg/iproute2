@@ -69,8 +69,11 @@ struct tc_estimator {
 #define TC_H_MAJ_MASK (0xFFFF0000U)
 //min占用后两个字节
 #define TC_H_MIN_MASK (0x0000FFFFU)
+/*取maj*/
 #define TC_H_MAJ(h) ((h)&TC_H_MAJ_MASK)
+/*取min*/
 #define TC_H_MIN(h) ((h)&TC_H_MIN_MASK)
+/*构造一个u32,maj的前2字节合上min的低2字节*/
 #define TC_H_MAKE(maj,min) (((maj)&TC_H_MAJ_MASK)|((min)&TC_H_MIN_MASK))
 
 #define TC_H_UNSPEC	(0U)

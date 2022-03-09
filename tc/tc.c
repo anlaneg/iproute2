@@ -68,11 +68,13 @@ static int parse_noqopt(struct qdisc_util *qu, int argc, char **argv,
 			struct nlmsghdr *n, const char *dev)
 {
 	if (argc) {
+	    /*如果仍有参数，则解析失败*/
 		fprintf(stderr,
 			"Unknown qdisc \"%s\", hence option \"%s\" is unparsable\n",
 			qu->id, *argv);
 		return -1;
 	}
+	/*如果没有参数，则解析成功*/
 	return 0;
 }
 

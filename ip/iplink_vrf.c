@@ -130,6 +130,7 @@ __u32 ipvrf_get_table(const char *name)
 	__u32 tb_id = 0;
 	int len;
 
+	/*接口名称*/
 	addattr_l(&req.n, sizeof(req), IFLA_IFNAME, name, strlen(name) + 1);
 
 	if (rtnl_talk_suppress_rtnl_errmsg(&rth, &req.n, &answer) < 0) {

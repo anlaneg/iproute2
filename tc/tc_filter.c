@@ -127,6 +127,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 			req.t.tcm_parent = TC_H_MAKE(TC_H_CLSACT,
 						     TC_H_MIN_INGRESS);
 		} else if (strcmp(*argv, "egress") == 0) {
+		    /*规则添加到egress*/
 			if (req.t.tcm_parent) {
 				fprintf(stderr,
 					"Error: \"egress\" is duplicate parent ID\n");
@@ -140,7 +141,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 			NEXT_ARG();
 			if (req.t.tcm_parent)
 				duparg("parent", *argv);
-			//解析major,minor
+			//解析major,minor,填充到handle
 			if (get_tc_classid(&handle, *argv))
 				invarg("Invalid parent ID", *argv);
 			req.t.tcm_parent = handle;

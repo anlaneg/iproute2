@@ -66,12 +66,14 @@ static int rd_init(struct rd *rd, char *filename)
 	if (!rd->buff)
 		return -ENOMEM;
 
+	/*dump系统中所有ib设备*/
 	rd_prepare_msg(rd, RDMA_NLDEV_CMD_GET,
 		       &seq, (NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP));
 	ret = rd_send_msg(rd);
 	if (ret)
 		return ret;
 
+	/*收到的消息,并遍历初始化rdma_dev*/
 	return rd_recv_msg(rd, rd_dev_init_cb, rd, seq);
 }
 
@@ -103,6 +105,7 @@ int main(int argc, char **argv)
 	char *filename;
 	int opt;
 	int err;
+	/*当前进程名称*/
 	filename = basename(argv[0]);
 
 	while ((opt = getopt_long(argc, argv, ":Vhdrpjfb:",
@@ -155,6 +158,7 @@ int main(int argc, char **argv)
 	rd.pretty_output = pretty;
 	rd.show_raw = show_raw;
 
+	/*加载系统ib设备*/
 	err = rd_init(&rd, filename);
 	if (err)
 		goto out;
@@ -162,6 +166,7 @@ int main(int argc, char **argv)
 	if (batch_file)
 		err = rd_batch(&rd, batch_file, force);
 	else
+	    /*按命令行进行执行*/
 		err = rd_cmd(&rd, argc, argv);
 out:
 	/* Always cleanup */

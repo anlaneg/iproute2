@@ -120,7 +120,6 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 		} else if (strcmp(*argv, "parent") == 0) {
 			//指定父队列handle
 			__u32 handle;
-
 			NEXT_ARG();
 			if (req.t.tcm_parent)
 				duparg("parent", *argv);
@@ -157,6 +156,7 @@ static int tc_qdisc_modify(int cmd, unsigned int flags, int argc, char **argv)
 		argc--; argv++;
 	}
 
+	/*填充qdisc类型*/
 	if (k[0])
 		addattr_l(&req.n, sizeof(req), TCA_KIND, k, strlen(k)+1);
 	if (est.ewma_log)

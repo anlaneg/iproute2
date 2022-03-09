@@ -44,7 +44,7 @@ static int fread_id_name(FILE *fp, int *id, char *namebuf)
 	while (fgets(buf, sizeof(buf), fp)) {
 		char *p = buf;
 
-		//跳过table,空格
+		//跳过行首的tab及空格
 		while (*p == ' ' || *p == '\t')
 			p++;
 
@@ -52,12 +52,13 @@ static int fread_id_name(FILE *fp, int *id, char *namebuf)
 		if (*p == '#' || *p == '\n' || *p == 0)
 			continue;
 
-		//提取id与名称的映射
+		//提取id与名称的映射（格式 <id> <%s>)
 		if (sscanf(p, "0x%x %s\n", id, namebuf) != 2 &&
 				sscanf(p, "0x%x %s #", id, namebuf) != 2 &&
 				sscanf(p, "%d %s\n", id, namebuf) != 2 &&
 				sscanf(p, "%d %s #", id, namebuf) != 2) {
 			strcpy(namebuf, p);
+			/*解析失败*/
 			return -1;
 		}
 		return 1;
@@ -101,6 +102,7 @@ rtnl_hash_initialize(const char *file, struct rtnl_hash_entry **hash, int size)
 	fclose(fp);
 }
 
+/*利用file建立map,生成tab*/
 static void rtnl_tab_initialize(const char *file, char **tab, int size)
 {
 	FILE *fp;
@@ -112,6 +114,7 @@ static void rtnl_tab_initialize(const char *file, char **tab, int size)
 	if (!fp)
 		return;
 
+	/*自fp中读取一行数据，并分隔为id namebuf*/
 	while ((ret = fread_id_name(fp, &id, &namebuf[0]))) {
 		if (ret == -1) {
 			fprintf(stderr, "Database %s is corrupted at %s\n",
@@ -120,8 +123,10 @@ static void rtnl_tab_initialize(const char *file, char **tab, int size)
 			return;
 		}
 		if (id < 0 || id > size)
+		    /*id有误，忽略*/
 			continue;
 
+		/*构造映射表*/
 		tab[id] = strdup(namebuf);
 	}
 	fclose(fp);
@@ -320,6 +325,7 @@ static int rtnl_rtrealm_init;
 static void rtnl_rtrealm_initialize(void)
 {
 	rtnl_rtrealm_init = 1;
+	/*读取rt_realms,生成数字与字符串映射表*/
 	rtnl_tab_initialize(CONFDIR "/rt_realms",
 			    rtnl_rtrealm_tab, 256);
 }
@@ -348,14 +354,17 @@ int rtnl_rtrealm_a2n(__u32 *id, const char *arg)
 	char *end;
 	int i;
 
+	/*有cache进行cache匹配*/
 	if (cache && strcmp(cache, arg) == 0) {
 		*id = res;
 		return 0;
 	}
 
+	/*执行rtrealm映射*/
 	if (!rtnl_rtrealm_init)
 		rtnl_rtrealm_initialize();
 
+	/*对照rtnl_rtrealm_tab内容，进行字符串匹配*/
 	for (i = 0; i < 256; i++) {
 		if (rtnl_rtrealm_tab[i] &&
 		    strcmp(rtnl_rtrealm_tab[i], arg) == 0) {
@@ -366,6 +375,7 @@ int rtnl_rtrealm_a2n(__u32 *id, const char *arg)
 		}
 	}
 
+	/*字符串未匹配，转数字*/
 	res = strtoul(arg, &end, 0);
 	if (!end || end == arg || *end || res > 255)
 		return -1;
@@ -495,6 +505,7 @@ static char *rtnl_rtdsfield_tab[256] = {
 
 static int rtnl_rtdsfield_init;
 
+/*tos数字与字符串表生成*/
 static void rtnl_rtdsfield_initialize(void)
 {
 	rtnl_rtdsfield_init = 1;
@@ -538,14 +549,17 @@ int rtnl_dsfield_a2n(__u32 *id, const char *arg)
 	char *end;
 	int i;
 
+	/*检查cache匹配*/
 	if (cache && strcmp(cache, arg) == 0) {
 		*id = res;
 		return 0;
 	}
 
+	/*rtdsfield初始化*/
 	if (!rtnl_rtdsfield_init)
 		rtnl_rtdsfield_initialize();
 
+	/*字符串到id映射*/
 	for (i = 0; i < 256; i++) {
 		if (rtnl_rtdsfield_tab[i] &&
 		    strcmp(rtnl_rtdsfield_tab[i], arg) == 0) {
@@ -556,6 +570,7 @@ int rtnl_dsfield_a2n(__u32 *id, const char *arg)
 		}
 	}
 
+	/*直接转数字*/
 	res = strtoul(arg, &end, 16);
 	if (!end || end == arg || *end || res > 255)
 		return -1;

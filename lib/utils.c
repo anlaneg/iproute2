@@ -184,7 +184,7 @@ static int get_netmask(unsigned int *val/*出参，掩码长度*/, const char *a
 	return -1;
 }
 
-//将arg转换为unsigned类型的val
+//将arg转换为unsigned int类型的val
 int get_unsigned(unsigned int *val, const char *arg, int base)
 {
 	unsigned long res;
@@ -485,6 +485,7 @@ static int get_addr_ipv4(__u8 *ap, const char *cp)
 	return 1;
 }
 
+/*分4段进行解析，每段2个字节，段与段之间通过':'进行划分*/
 int get_addr64(__u64 *ap, const char *cp)
 {
 	int i;
@@ -498,6 +499,7 @@ int get_addr64(__u64 *ap, const char *cp)
 		unsigned long n;
 		char *endp;
 
+		/*解析cp,获得的值不得大于0xffff*/
 		n = strtoul(cp, &endp, 16);
 		if (n > 0xffff)
 			return -1;	/* bogus network value */
@@ -508,10 +510,14 @@ int get_addr64(__u64 *ap, const char *cp)
 		val.v16[i] = htons(n);
 
 		if (*endp == '\0')
+		    /*到达字符串结尾，跳出*/
 			break;
 
+		/*中间以':'进行分隔，不得超过3*/
 		if (i == 3 || *endp != ':')
 			return -1;	/* extra characters */
+
+		/*进行下一个解析*/
 		cp = endp + 1;
 	}
 
@@ -720,6 +726,7 @@ static const char *family_name_verbose(int family)
 	return family_name(family);
 }
 
+/*将args转换为地址*/
 int get_addr(inet_prefix *dst, const char *arg, int family)
 {
 	if (get_addr_1(dst, arg, family)) {

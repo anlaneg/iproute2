@@ -226,15 +226,20 @@ struct rtattr {
  ****/
 
 struct rtmsg {
+    /*地址协议族*/
 	unsigned char		rtm_family;
+    /*目的地址前缀长度*/
 	unsigned char		rtm_dst_len;
+	/*源地址前缀长度*/
 	unsigned char		rtm_src_len;
 	unsigned char		rtm_tos;
 
 	//需要操作的表
 	unsigned char		rtm_table;	/* Routing table id */
 	unsigned char		rtm_protocol;	/* Routing protocol; see below	*/
-	unsigned char		rtm_scope;	/* See below */	
+	/*路由scope,rt_scope_t类型*/
+	unsigned char		rtm_scope;	/* See below */
+	/*路由类型，例如RTN_LOCAL*/
 	unsigned char		rtm_type;	/* See below	*/
 
 	unsigned		rtm_flags;
@@ -352,12 +357,12 @@ enum rt_class_t {
 enum rtattr_type_t {
 	RTA_UNSPEC,
 	RTA_DST,
-	RTA_SRC,
+	RTA_SRC,/*from命令指定*/
 	RTA_IIF,
 	RTA_OIF,
-	RTA_GATEWAY,
+	RTA_GATEWAY,/*网关地址*/
 	RTA_PRIORITY,
-	RTA_PREFSRC,
+	RTA_PREFSRC,/*src命令指定*/
 	RTA_METRICS,
 	RTA_MULTIPATH,
 	RTA_PROTOINFO, /* no longer used */
@@ -369,11 +374,11 @@ enum rtattr_type_t {
 	RTA_MARK,
 	RTA_MFC_STATS,
 	RTA_VIA,
-	RTA_NEWDST,
+	RTA_NEWDST,/*as命令指定*/
 	RTA_PREF,
 	RTA_ENCAP_TYPE,
 	RTA_ENCAP,
-	RTA_EXPIRES,
+	RTA_EXPIRES,/*expires命令指定*/
 	RTA_PAD,
 	RTA_UID,
 	RTA_TTL_PROPAGATE,
@@ -402,6 +407,7 @@ struct rtnexthop {
 	unsigned short		rtnh_len;
 	unsigned char		rtnh_flags;
 	unsigned char		rtnh_hops;
+	/*下一跳对应出接口的ifindex*/
 	int			rtnh_ifindex;
 };
 

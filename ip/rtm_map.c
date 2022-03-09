@@ -105,17 +105,24 @@ static int get_rt_realms(__u32 *realms, char *arg)
 
 	*realms = 0;
 	if (p) {
+	    /*包含'/'符，将其设置为‘\0'*/
 		*p = 0;
+		/*将前半部分转换为数字*/
 		if (rtnl_rtrealm_a2n(realms, arg)) {
 			*p = '/';
 			return -1;
 		}
 		*realms <<= 16;
+		/*还原'/'符号*/
 		*p = '/';
+		/*使后半部分参数指到'/'之后*/
 		arg = p+1;
 	}
+
+	/*将arg转换为数字*/
 	if (*arg && rtnl_rtrealm_a2n(&realm, arg))
 		return -1;
+	/*合并realm*/
 	*realms |= realm;
 	return 0;
 }
@@ -125,5 +132,6 @@ int get_rt_realms_or_raw(__u32 *realms, char *arg)
 	if (!get_rt_realms(realms, arg))
 		return 0;
 
+	/*将args转换为无符号整数*/
 	return get_unsigned(realms, arg, 0);
 }

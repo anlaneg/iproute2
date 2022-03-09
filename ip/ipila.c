@@ -163,7 +163,7 @@ static int do_list(int argc, char **argv)
 }
 
 static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
-			 bool adding)
+			 bool adding/*是否添加操作*/)
 {
 	__u64 locator = 0;
 	__u64 locator_match = 0;
@@ -180,6 +180,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 		if (!matches(*argv, "loc")) {
 			NEXT_ARG();
 
+			/*解析argv得到locator*/
 			if (get_addr64(&locator, *argv) < 0) {
 				fprintf(stderr, "Bad locator: %s\n", *argv);
 				return -1;
@@ -188,6 +189,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 		} else if (!matches(*argv, "loc_match")) {
 			NEXT_ARG();
 
+			/*解析loc match字段*/
 			if (get_addr64(&locator_match, *argv) < 0) {
 				fprintf(stderr, "Bad locator to match: %s\n",
 					*argv);
@@ -197,6 +199,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 		} else if (!matches(*argv, "csum-mode")) {
 			NEXT_ARG();
 
+			/*csum的模式*/
 			csum_mode = ila_csum_name2mode(*argv);
 			if (csum_mode < 0) {
 				fprintf(stderr, "Bad csum-mode: %s\n",
@@ -207,6 +210,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 		} else if (!matches(*argv, "ident-type")) {
 			NEXT_ARG();
 
+			/*id类型*/
 			ident_type = ila_ident_name2type(*argv);
 			if (ident_type < 0) {
 				fprintf(stderr, "Bad ident-type: %s\n",
@@ -217,6 +221,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 		} else if (!matches(*argv, "dev")) {
 			NEXT_ARG();
 
+			/*针对哪个设备*/
 			ifindex = ll_name_to_index(*argv);
 			if (ifindex == 0) {
 				fprintf(stderr, "No such interface: %s\n",
@@ -232,6 +237,7 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 	}
 
 	if (adding) {
+	    /*添加操作时，loc,loc_match必须被设置*/
 		if (!loc_set) {
 			fprintf(stderr, "ila: missing locator\n");
 			return -1;
@@ -243,18 +249,23 @@ static int ila_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 	}
 
 	if (loc_match_set)
+	    /*loc配置字段*/
 		addattr64(n, 1024, ILA_ATTR_LOCATOR_MATCH, locator_match);
 
 	if (loc_set)
+	    /*loc字段*/
 		addattr64(n, 1024, ILA_ATTR_LOCATOR, locator);
 
 	if (ifindex_set)
+	    /*设备ifindex*/
 		addattr32(n, 1024, ILA_ATTR_IFINDEX, ifindex);
 
 	if (csum_mode_set)
+	    /*csum模式*/
 		addattr8(n, 1024, ILA_ATTR_CSUM_MODE, csum_mode);
 
 	if (ident_type_set)
+	    /*id类型设置*/
 		addattr8(n, 1024, ILA_ATTR_IDENT_TYPE, ident_type);
 
 	return 0;
@@ -289,6 +300,7 @@ int do_ipila(int argc, char **argv)
 	if (argc < 1)
 		usage();
 
+	/*显示帮助信息*/
 	if (matches(*argv, "help") == 0)
 		usage();
 
@@ -296,10 +308,13 @@ int do_ipila(int argc, char **argv)
 		exit(1);
 
 	if (matches(*argv, "add") == 0)
+	    /*ila执行添加*/
 		return do_add(argc-1, argv+1);
 	if (matches(*argv, "delete") == 0)
+	    /*ila执行删除*/
 		return do_del(argc-1, argv+1);
 	if (matches(*argv, "list") == 0)
+	    /*列出ila所有配置*/
 		return do_list(argc-1, argv+1);
 
 	fprintf(stderr, "Command \"%s\" is unknown, try \"ip ila help\".\n",

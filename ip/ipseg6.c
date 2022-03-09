@@ -206,8 +206,10 @@ static int seg6_do_cmd(void)
 	return 0;
 }
 
+/*ip sr 配置处理*/
 int do_seg6(int argc, char **argv)
 {
+    /*显示帮助信息*/
 	if (argc < 1 || matches(*argv, "help") == 0)
 		usage();
 

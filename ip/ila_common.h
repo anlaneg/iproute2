@@ -62,8 +62,10 @@ static inline char *ila_ident_type2name(__u8 ident_type)
 static inline int ila_ident_name2type(char *name)
 {
 	if (!strcmp(name, "luid"))
+	    /*本机唯一id*/
 		return ILA_ATYPE_LUID;
 	else if (!strcmp(name, "use-format"))
+	    /*自定义格式*/
 		return ILA_ATYPE_USE_FORMAT;
 #if 0 /* No kernel support for configuring these yet */
 	else if (!strcmp(name, "iid"))

@@ -102,7 +102,7 @@ static const struct cmd {
 	{ "link",	do_iplink },
 	{ "l2tp",	do_ipl2tp },
 	{ "fou",	do_ipfou },
-	{ "ila",	do_ipila },
+	{ "ila",	do_ipila },/*ila相关命令*/
 	{ "macsec",	do_ipmacsec },
 	{ "tunnel",	do_iptunnel },
 	{ "tunl",	do_iptunnel },
@@ -117,8 +117,8 @@ static const struct cmd {
 	{ "mrule",	do_multirule },
 	{ "netns",	do_netns },
 	{ "netconf",	do_ipnetconf },
-	{ "vrf",	do_ipvrf},
-	{ "sr",		do_seg6 },
+	{ "vrf",	do_ipvrf},/*vrf相关的命令*/
+	{ "sr",		do_seg6 },/*sr相关的命令*/
 	{ "nexthop",	do_ipnh },
 	{ "mptcp",	do_mptcp },
 	{ "ioam",	do_ioam6 },

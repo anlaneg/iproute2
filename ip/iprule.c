@@ -809,7 +809,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 
 	while (argc > 0) {
 		if (strcmp(*argv, "not") == 0) {
-			//指定了not修饰符，打invert标记
+			//指定了not修饰符，打invert标记，匹配结果将反转
 			req.frh.flags |= FIB_RULE_INVERT;
 		} else if (strcmp(*argv, "from") == 0) {
 			//添加用户指定的源地址
@@ -821,7 +821,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			addattr_l(&req.n, sizeof(req), FRA_SRC,
 				  &dst.data, dst.bytelen);
 		} else if (strcmp(*argv, "to") == 0) {
-			//添加用户指定的目的地址
+			//添加用户指定的目的地址及掩码
 			inet_prefix dst;
 
 			NEXT_ARG();
@@ -849,7 +849,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				invarg("TOS value is invalid\n", *argv);
 			req.frh.tos = tos;
 		} else if (strcmp(*argv, "fwmark") == 0) {
-			/*指明要匹配的fwmark,含掩码*/
+			/*指明要匹配的fwmark及其掩码*/
 			char *slash;
 			__u32 fwmark, fwmask;
 
@@ -869,6 +869,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 					  FRA_FWMASK, fwmask);
 			}
 		} else if (matches(*argv, "realms") == 0) {
+		    //用于填充ip rule对应的tclassid号
 			__u32 realm;
 
 			NEXT_ARG();
@@ -963,7 +964,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				  get_addr32(*argv));
 			req.frh.action = RTN_NAT;
 		} else if (strcmp(*argv, "ipproto") == 0) {
-			/*指明要应用的协议*/
+			/*指明要应用的l3层协议*/
 			int ipproto;
 
 			NEXT_ARG();
@@ -1003,6 +1004,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 
 			//指定动作类型
 			if (strcmp(*argv, "type") == 0)
+			    /*遇到type,跳下一个叁数*/
 				NEXT_ARG();
 
 			if (matches(*argv, "help") == 0)
@@ -1013,6 +1015,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 
 				type = FR_ACT_GOTO;
 				NEXT_ARG();
+				/*goto指定的target是另一条规则的优先级*/
 				if (get_u32(&target, *argv, 0))
 					invarg("invalid target\n", *argv);
 				addattr32(&req.n, sizeof(req),
