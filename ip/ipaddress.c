@@ -60,6 +60,7 @@ static void usage(void)
 		"       ip address {save|flush} [ dev IFNAME ] [ scope SCOPE-ID ]\n"
 		"                            [ to PREFIX ] [ FLAG-LIST ] [ label LABEL ] [up]\n"
 		"       ip address [ show [ dev IFNAME ] [ scope SCOPE-ID ] [ master DEVICE ]\n"
+		"                         [ nomaster ]\n"
 		"                         [ type TYPE ] [ to PREFIX ] [ FLAG-LIST ]\n"
 		"                         [ label LABEL ] [up] [ vrf NAME ] ]\n"
 		"       ip address {showdump|restore}\n"
@@ -1218,6 +1219,12 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 				   "gso_max_segs %u ",
 				   rta_getattr_u32(tb[IFLA_GSO_MAX_SEGS]));
 
+		if (tb[IFLA_GRO_MAX_SIZE])
+			print_uint(PRINT_ANY,
+				   "gro_max_size",
+				   "gro_max_size %u ",
+				   rta_getattr_u32(tb[IFLA_GRO_MAX_SIZE]));
+
 		if (tb[IFLA_PHYS_PORT_NAME])
 			print_string(PRINT_ANY,
 				     "phys_port_name",
@@ -2125,6 +2132,8 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 			if (!name_is_vrf(*argv))
 				invarg("Not a valid VRF name\n", *argv);
 			filter.master = ifindex;
+		} else if (strcmp(*argv, "nomaster") == 0) {
+			filter.master = -1;
 		} else if (strcmp(*argv, "type") == 0) {
 			int soff;
 
@@ -2343,16 +2352,6 @@ static bool ipaddr_is_multicast(inet_prefix *a)
 		return false;
 }
 
-static bool is_valid_label(const char *dev, const char *label)
-{
-	size_t len = strlen(dev);
-
-	if (strncmp(label, dev, len) != 0)
-		return false;
-
-	return label[len] == '\0' || label[len] == ':';
-}
-
 static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 {
 	struct {
@@ -2500,12 +2499,6 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 	//dev必须指定
 	if (d == NULL) {
 		fprintf(stderr, "Not enough information: \"dev\" argument is required.\n");
-		return -1;
-	}
-	if (l && !is_valid_label(d, l)) {
-		fprintf(stderr,
-			"\"label\" (%s) must match \"dev\" (%s) or be prefixed by \"dev\" with a colon.\n",
-			l, d);
 		return -1;
 	}
 

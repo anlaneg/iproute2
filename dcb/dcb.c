@@ -106,7 +106,7 @@ static int dcb_set_attribute_attr_cb(const struct nlattr *attr, void *data)
 {
 	struct dcb_set_attribute_response *resp = data;
 	uint16_t len;
-	uint8_t err;
+	int8_t err;
 
 	if (mnl_attr_get_type(attr) != resp->response_attr)
 		return MNL_CB_OK;
@@ -117,10 +117,12 @@ static int dcb_set_attribute_attr_cb(const struct nlattr *attr, void *data)
 		return MNL_CB_ERROR;
 	}
 
+	/* The attribute is formally u8, but actually an i8 containing a
+	 * negative errno value.
+	 */
 	err = mnl_attr_get_u8(attr);
 	if (err) {
-		fprintf(stderr, "Error when attempting to set attribute: %s\n",
-			strerror(err));
+		errno = -err;
 		return MNL_CB_ERROR;
 	}
 
@@ -242,9 +244,11 @@ static int __dcb_set_attribute(struct dcb *dcb, int command, const char *dev,
 	if (ret)
 		return ret;
 
+	errno = 0;
 	ret = dcb_talk(dcb, nlh, dcb_set_attribute_cb, &resp);
 	if (ret) {
-		perror("Attribute write");
+		if (errno)
+			perror("Attribute write");
 		return ret;
 	}
 	return 0;
@@ -326,51 +330,51 @@ int dcb_set_attribute_bare(struct dcb *dcb, int command, const char *dev,
 
 void dcb_print_array_u8(const __u8 *array, size_t size)
 {
-	SPRINT_BUF(b);
 	size_t i;
 
 	for (i = 0; i < size; i++) {
-		snprintf(b, sizeof(b), "%zd:%%d ", i);
-		print_uint(PRINT_ANY, NULL, b, array[i]);
+		print_uint(PRINT_JSON, NULL, NULL, array[i]);
+		print_uint(PRINT_FP, NULL, "%zd:", i);
+		print_uint(PRINT_FP, NULL, "%d ", array[i]);
 	}
 }
 
 void dcb_print_array_u64(const __u64 *array, size_t size)
 {
-	SPRINT_BUF(b);
 	size_t i;
 
 	for (i = 0; i < size; i++) {
-		snprintf(b, sizeof(b), "%zd:%%" PRIu64 " ", i);
-		print_u64(PRINT_ANY, NULL, b, array[i]);
+		print_u64(PRINT_JSON, NULL, NULL, array[i]);
+		print_uint(PRINT_FP, NULL, "%zd:", i);
+		print_u64(PRINT_FP, NULL, "%" PRIu64 " ", array[i]);
 	}
 }
 
 void dcb_print_array_on_off(const __u8 *array, size_t size)
 {
-	SPRINT_BUF(b);
 	size_t i;
 
 	for (i = 0; i < size; i++) {
-		snprintf(b, sizeof(b), "%zd:%%s ", i);
-		print_on_off(PRINT_ANY, NULL, b, array[i]);
+		print_on_off(PRINT_JSON, NULL, NULL, array[i]);
+		print_uint(PRINT_FP, NULL, "%zd:", i);
+		print_on_off(PRINT_FP, NULL, "%s ", array[i]);
 	}
 }
 
 void dcb_print_array_kw(const __u8 *array, size_t array_size,
 			const char *const kw[], size_t kw_size)
 {
-	SPRINT_BUF(b);
 	size_t i;
 
 	for (i = 0; i < array_size; i++) {
+		const char *str = "???";
 		__u8 emt = array[i];
 
-		snprintf(b, sizeof(b), "%zd:%%s ", i);
 		if (emt < kw_size && kw[emt])
-			print_string(PRINT_ANY, NULL, b, kw[emt]);
-		else
-			print_string(PRINT_ANY, NULL, b, "???");
+			str = kw[emt];
+		print_string(PRINT_JSON, NULL, NULL, str);
+		print_uint(PRINT_FP, NULL, "%zd:", i);
+		print_string(PRINT_FP, NULL, "%s ", str);
 	}
 }
 

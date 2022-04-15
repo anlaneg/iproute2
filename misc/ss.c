@@ -55,6 +55,11 @@
 #include <linux/tls.h>
 #include <linux/mptcp.h>
 
+#if HAVE_RPC
+#include <rpc/rpc.h>
+#include <rpc/xdr.h>
+#endif
+
 /* AF_VSOCK/PF_VSOCK is only provided since glibc 2.18 */
 #ifndef PF_VSOCK
 #define PF_VSOCK 40
@@ -96,6 +101,11 @@ static int security_get_initial_context(char *name,  char **context)
 {
 	*context = NULL;
 	return -1;
+}
+
+static void freecon(char *context)
+{
+	free(context);
 }
 #endif
 
@@ -187,8 +197,12 @@ static struct {
 } buffer;
 
 static const char *TCP_PROTO = "tcp";
-static const char *SCTP_PROTO = "sctp";
 static const char *UDP_PROTO = "udp";
+#ifdef HAVE_RPC
+static const char *TCP6_PROTO = "tcp6";
+static const char *UDP6_PROTO = "udp6";
+static const char *SCTP_PROTO = "sctp";
+#endif
 static const char *RAW_PROTO = "raw";
 static const char *dg_proto;
 
@@ -618,7 +632,7 @@ static void user_ent_hash_build(void)
 		snprintf(name + nameoff, sizeof(name) - nameoff, "%d/fd/", pid);
 		pos = strlen(name);
 		if ((dir1 = opendir(name)) == NULL) {
-			free(pid_context);
+			freecon(pid_context);
 			continue;
 		}
 
@@ -667,9 +681,9 @@ static void user_ent_hash_build(void)
 			}
 			user_ent_add(ino, p, pid, fd,
 					pid_context, sock_context);
-			free(sock_context);
+			freecon(sock_context);
 		}
-		free(pid_context);
+		freecon(pid_context);
 		closedir(dir1);
 	}
 	closedir(dir);
@@ -849,6 +863,8 @@ struct tcpstat {
 	unsigned int	    reord_seen;
 	double		    rcv_rtt;
 	double		    min_rtt;
+	unsigned int 	    rcv_ooopack;
+	unsigned int	    snd_wnd;
 	int		    rcv_space;
 	unsigned int        rcv_ssthresh;
 	unsigned long long  busy_time;
@@ -1472,45 +1488,87 @@ struct scache {
 
 static struct scache *rlist;
 
+#ifdef HAVE_RPC
+static CLIENT *rpc_client_create(rpcprog_t prog, rpcvers_t vers)
+{
+	struct netbuf nbuf;
+	struct sockaddr_un saddr;
+	int sock;
+
+	memset(&saddr, 0, sizeof(saddr));
+	sock = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (sock < 0)
+		return NULL;
+
+	saddr.sun_family = AF_LOCAL;
+	strcpy(saddr.sun_path, _PATH_RPCBINDSOCK);
+	nbuf.len = SUN_LEN(&saddr);
+	nbuf.maxlen = sizeof(struct sockaddr_un);
+	nbuf.buf = &saddr;
+
+	return clnt_vc_create(sock, &nbuf, prog, vers, 0, 0);
+}
+
 static void init_service_resolver(void)
 {
-	char buf[128];
-	FILE *fp = popen("/usr/sbin/rpcinfo -p 2>/dev/null", "r");
+	struct rpcblist *rhead = NULL;
+	struct timeval timeout;
+	struct rpcent *rpc;
+	enum clnt_stat res;
+	CLIENT *client;
 
-	if (!fp)
+	timeout.tv_sec = 5;
+	timeout.tv_usec = 0;
+
+	client = rpc_client_create(PMAPPROG, RPCBVERS4);
+	if (!client)
 		return;
 
-	if (!fgets(buf, sizeof(buf), fp)) {
-		pclose(fp);
+	res = clnt_call(client, RPCBPROC_DUMP, (xdrproc_t)xdr_void, NULL,
+			(xdrproc_t)xdr_rpcblist_ptr, (char *)&rhead,
+			timeout);
+	if (res != RPC_SUCCESS)
 		return;
-	}
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		unsigned int progn, port;
-		char proto[128], prog[128] = "rpc.";
+
+	for (; rhead; rhead = rhead->rpcb_next) {
+		char prog[128] = "rpc.";
 		struct scache *c;
+		int hport, lport, ok;
 
-		if (sscanf(buf, "%u %*d %s %u %s",
-			   &progn, proto, &port, prog+4) != 4)
+		c = malloc(sizeof(*c));
+		if (!c)
 			continue;
 
-		if (!(c = malloc(sizeof(*c))))
+		ok = sscanf(rhead->rpcb_map.r_addr, "::.%d.%d", &hport, &lport);
+		if (!ok)
+			ok = sscanf(rhead->rpcb_map.r_addr, "0.0.0.0.%d.%d",
+				    &hport, &lport);
+		if (!ok)
 			continue;
+		c->port = hport << 8 | lport;
 
-		c->port = port;
-		c->name = strdup(prog);
-		if (strcmp(proto, TCP_PROTO) == 0)
+		if (strcmp(rhead->rpcb_map.r_netid, TCP_PROTO) == 0 ||
+		    strcmp(rhead->rpcb_map.r_netid, TCP6_PROTO) == 0)
 			c->proto = TCP_PROTO;
-		else if (strcmp(proto, UDP_PROTO) == 0)
+		else if (strcmp(rhead->rpcb_map.r_netid, UDP_PROTO) == 0 ||
+			 strcmp(rhead->rpcb_map.r_netid, UDP6_PROTO) == 0)
 			c->proto = UDP_PROTO;
-		else if (strcmp(proto, SCTP_PROTO) == 0)
+		else if (strcmp(rhead->rpcb_map.r_netid, SCTP_PROTO) == 0)
 			c->proto = SCTP_PROTO;
 		else
-			c->proto = NULL;
+			continue;
+
+		rpc = getrpcbynumber(rhead->rpcb_map.r_prog);
+		if (rpc) {
+			strncat(prog, rpc->r_name, 128 - strlen(prog));
+			c->name = strdup(prog);
+		}
+
 		c->next = rlist;
 		rlist = c;
 	}
-	pclose(fp);
 }
+#endif
 
 /* Even do not try default linux ephemeral port ranges:
  * default /etc/services contains so much of useless crap
@@ -2649,6 +2707,10 @@ static void tcp_stats_print(struct tcpstat *s)
 		out(" notsent:%u", s->not_sent);
 	if (s->min_rtt)
 		out(" minrtt:%g", s->min_rtt);
+	if (s->rcv_ooopack)
+		out(" rcv_ooopack:%u", s->rcv_ooopack);
+	if (s->snd_wnd)
+		out(" snd_wnd:%u", s->snd_wnd);
 }
 
 static void tcp_timer_print(struct tcpstat *s)
@@ -3083,6 +3145,8 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r,
 		s.reord_seen = info->tcpi_reord_seen;
 		s.bytes_sent = info->tcpi_bytes_sent;
 		s.bytes_retrans = info->tcpi_bytes_retrans;
+		s.rcv_ooopack = info->tcpi_rcv_ooopack;
+		s.snd_wnd = info->tcpi_snd_wnd;
 		tcp_stats_print(&s);
 		free(s.dctcp);
 		free(s.bbr_info);
@@ -4725,7 +4789,7 @@ static int netlink_show_one(struct filter *f,
 			getpidcon(pid, &pid_context);
 
 		out(" proc_ctx=%s", pid_context ? : "unavailable");
-		free(pid_context);
+		freecon(pid_context);
 	}
 
 	if (show_details) {
@@ -5655,9 +5719,11 @@ int main(int argc, char *argv[])
 	filter_states_set(&current_filter, state_filter);
 	filter_merge_defaults(&current_filter);
 
+#ifdef HAVE_RPC
 	if (!numeric && resolve_hosts &&
 	    (current_filter.dbs & (UNIX_DBM|INET_L4_DBM)))
 		init_service_resolver();
+#endif
 
 	if (current_filter.dbs == 0) {
 		fprintf(stderr, "ss: no socket tables to show with such filter.\n");

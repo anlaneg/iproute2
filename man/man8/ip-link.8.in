@@ -36,10 +36,13 @@ ip-link \- network device configuration
 .RB "[ " numrxqueues
 .IR QUEUE_COUNT " ]"
 .br
-.BR "[ " gso_max_size
+.RB "[ " gso_max_size
 .IR BYTES " ]"
 .RB "[ " gso_max_segs
 .IR SEGMENTS " ]"
+.br
+.RB "[ " gro_max_size
+.IR BYTES " ]"
 .br
 .BI type " TYPE"
 .RI "[ " ARGS " ]"
@@ -82,6 +85,13 @@ ip-link \- network device configuration
 .br
 .RB "[ " txqueuelen
 .IR PACKETS " ]"
+.br
+.RB "[ " max_gso_size
+.IR BYTES " ]"
+.RB "[ " max_gso_segs
+.IR SEGMENTS " ]"
+.RB "[ " max_gro_size
+.IR BYTES " ]"
 .br
 .RB "[ " name
 .IR NEWNAME " ]"
@@ -179,7 +189,8 @@ ip-link \- network device configuration
 .B type
 .IR ETYPE " ] ["
 .B vrf
-.IR NAME " ]"
+.IR NAME " ] ["
+.BR nomaster " ]"
 
 .ti -8
 .B ip link xstats
@@ -197,6 +208,7 @@ ip-link \- network device configuration
 
 .ti -8
 .IR TYPE " := [ "
+.BR amt " | "
 .BR bridge " | "
 .BR bond " | "
 .BR can " | "
@@ -231,7 +243,8 @@ ip-link \- network device configuration
 .BR macsec " |"
 .BR netdevsim " |"
 .BR rmnet " |"
-.BR xfrm " ]"
+.BR xfrm " |"
+.BR gtp " ]"
 
 .ti -8
 .IR ETYPE " := [ " TYPE " |"
@@ -363,6 +376,9 @@ Link types:
 .BR bareudp
 - Bare UDP L3 encapsulation support
 .sp
+.BR amt
+- Automatic Multicast Tunneling (AMT)
+.sp
 .BR macsec
 - Interface for IEEE 802.1AE MAC Security (MACsec)
 .sp
@@ -377,6 +393,9 @@ Link types:
 .sp
 .BR xfrm
 - Virtual xfrm interface
+.sp
+.BR gtp
+- GPRS Tunneling Protocol
 .in -8
 
 .TP
@@ -396,6 +415,11 @@ packet the new device should accept.
 .BI gso_max_segs " SEGMENTS "
 specifies the recommended maximum number of a Generic Segment Offload
 segments the new device should accept.
+
+.TP
+.BI gro_max_size " BYTES "
+specifies the maximum size of a packet built by GRO stack
+on this device.
 
 .TP
 .BI index " IDX "
@@ -457,7 +481,7 @@ then VLAN header will be not inserted immediately but only before
 passing to the physical device (if this device does not support VLAN
 offloading), the similar on the RX direction - by default the packet
 will be untagged before being received by VLAN device. Reordering
-allows to accelerate tagging on egress and to hide VLAN header on
+allows one to accelerate tagging on egress and to hide VLAN header on
 ingress so the packet looks like regular Ethernet packet, at the same
 time it might be confusing for packet capture as the VLAN header does
 not exist within the packet.
@@ -476,11 +500,11 @@ where <phy_dev> is the physical device to which VLAN device is bound.
 
 .BR gvrp " { " on " | " off " } "
 - specifies whether this VLAN should be registered using GARP VLAN
-  Registration Protocol.
+Registration Protocol.
 
 .BR mvrp " { " on " | " off " } "
 - specifies whether this VLAN should be registered using Multiple VLAN
-  Registration Protocol.
+Registration Protocol.
 
 .BR loose_binding " { " on " | " off " } "
 - specifies whether the VLAN device state is bound to the physical device state.
@@ -686,7 +710,7 @@ or the internal FDB should be used.
 - enables the Group Policy extension (VXLAN-GBP).
 
 .in +4
-Allows to transport group policy context across VXLAN network peers.
+Allows one to transport group policy context across VXLAN network peers.
 If enabled, includes the mark of a packet in the VXLAN header for outgoing
 packets and fills the packet mark based on the information found in the
 VXLAN header for incoming packets.
@@ -1235,6 +1259,8 @@ the following additional arguments are supported:
 .RB [ no ] udp6zerocsumtx
 ] [
 .RB [ no ] udp6zerocsumrx
+] [
+.B innerprotoinherit
 ]
 
 .in +8
@@ -1298,6 +1324,10 @@ options.
 .RB [ no ] udp6zerocsumrx
 - allow incoming UDP packets over IPv6 with zero checksum field.
 
+.sp
+.B innerprotoinherit
+- use IPv4/IPv6 as inner protocol instead of Ethernet.
+
 .in -8
 
 .TP
@@ -1342,6 +1372,48 @@ When
 .B ethertype
 is "ipv4", this allows the tunnel to also handle IPv6. This option is disabled
 by default.
+
+.TP
+AMT Type Support
+For a link of type
+.I AMT
+the following additional arguments are supported:
+
+.BI "ip link add " DEVICE
+.BI type " AMT " discovery " IPADDR " mode " { " gateway " | " relay " } "
+.BI local " IPADDR " dev " PHYS_DEV " [
+.BI relay_port " PORT " ]
+[
+.BI gateway_port " PORT " ]
+[
+.BI max_tunnels " NUMBER "
+]
+
+.in +8
+.sp
+.BI discovery " IPADDR"
+- specifies the unicast discovery IP address to use to find remote IP address.
+
+.BR mode " { " gateway " | " relay " } "
+- specifies the role of AMT, Gateway or Relay
+
+.BI local " IPADDR "
+- specifies the source IP address to use in outgoing packets.
+
+.BI dev " PHYS_DEV "
+- specifies the underlying physical interface from which transform traffic
+is sent and received.
+
+.BI relay_port " PORT "
+- specifies the UDP Relay port to communicate to the Relay.
+
+.BI gateway_port " PORT "
+- specifies the UDP Gateway port to communicate to the Gateway.
+
+.BI max_tunnels " NUMBER "
+- specifies the maximum number of tunnels.
+
+.in -8
 
 .TP
 MACVLAN and MACVTAP Type Support
@@ -1492,6 +1564,8 @@ the following additional arguments are supported:
 ] [
 .BI mcast_snooping " MULTICAST_SNOOPING "
 ] [
+.BI mcast_vlan_snooping " MULTICAST_VLAN_SNOOPING "
+] [
 .BI mcast_router " MULTICAST_ROUTER "
 ] [
 .BI mcast_query_use_ifaddr " MCAST_QUERY_USE_IFADDR "
@@ -1613,6 +1687,12 @@ per-VLAN per-port stats accounting. Can be changed only when there are no port V
 .RI ( MULTICAST_SNOOPING " > 0) "
 or off
 .RI ( MULTICAST_SNOOPING " == 0). "
+
+.BI mcast_vlan_snooping " MULTICAST_VLAN_SNOOPING "
+- turn multicast VLAN snooping on
+.RI ( MULTICAST_VLAN_SNOOPING " > 0) "
+or off
+.RI ( MULTICAST_VLAN_SNOOPING " == 0). "
 
 .BI mcast_router " MULTICAST_ROUTER "
 - set bridge's multicast router if IGMP snooping is enabled.
@@ -1871,6 +1951,29 @@ policies. Policies must be configured with the same key. If not set, the key def
 
 .in -8
 
+.TP
+GTP Type Support
+For a link of type
+.I GTP
+the following additional arguments are supported:
+
+.BI "ip link add " DEVICE " type gtp role " ROLE " hsize " HSIZE
+
+.in +8
+.sp
+.BI role " ROLE "
+- specifies the role of the GTP device, either sgsn or ggsn
+
+.sp
+.BI hsize " HSIZE "
+- specifies size of the hashtable which stores PDP contexts
+
+.sp
+.BI restart_count " RESTART_COUNT "
+- GTP instance restart counter
+
+.in -8
+
 .SS ip link delete - delete virtual link
 
 .TP
@@ -2038,7 +2141,7 @@ flag in the output of the
 
 To change network namespace for wireless devices the
 .B iw
-tool can be used. But it allows to change network namespace only for
+tool can be used. But it allows one to change network namespace only for
 physical devices and by process
 .IR PID .
 
@@ -2134,9 +2237,9 @@ parameter must be specified.
 .sp
 .BI query_rss " on|off"
 - toggle the ability of querying the RSS configuration of a specific
-  VF. VF RSS information like RSS hash key may be considered sensitive
-  on some devices where this information is shared between VF and PF
-  and thus its querying may be prohibited by default.
+VF. VF RSS information like RSS hash key may be considered sensitive
+on some devices where this information is shared between VF and PF
+and thus its querying may be prohibited by default.
 .sp
 .BI state " auto|enable|disable"
 - set the virtual link state as seen by the specified VF. Setting to
@@ -2309,6 +2412,8 @@ the following additional arguments are supported:
 ] [
 .BR mcast_fast_leave " { " on " | " off "}"
 ] [
+.BR bcast_flood " { " on " | " off " }"
+] [
 .BR mcast_flood " { " on " | " off " }"
 ] [
 .BR mcast_to_unicast " { " on " | " off " }"
@@ -2321,6 +2426,7 @@ the following additional arguments are supported:
 ] [
 .BR isolated " { " on " | " off " }"
 ] [
+.BR locked " { " on " | " off " }"
 .BR backup_port " DEVICE"
 ] [
 .BR nobackup_port " ]"
@@ -2395,13 +2501,17 @@ queries.
 .B fastleave
 option above.
 
+.BR bcast_flood " { " on " | " off " }"
+- controls flooding of broadcast traffic on the given port. By default
+this flag is on.
+
 .BR mcast_flood " { " on " | " off " }"
 - controls whether a given port will flood multicast traffic for which
-  there is no MDB entry.
+there is no MDB entry. By default this flag is on.
 
 .BR mcast_to_unicast " { " on " | " off " }"
 - controls whether a given port will replicate packets using unicast
-  instead of multicast. By default this flag is off.
+instead of multicast. By default this flag is off.
 
 .BI group_fwd_mask " MASK "
 - set the group forward mask. This is the bitmask that is applied to
@@ -2417,6 +2527,11 @@ is enabled on the port. By default this flag is off.
 .BR vlan_tunnel " { " on " | " off " }"
 - controls whether vlan to tunnel mapping is enabled on the port. By
 default this flag is off.
+
+.BR locked " { " on " | " off " }"
+- sets or unsets a port in locked mode, so that when enabled, hosts
+behind the port cannot communicate through the port unless a FDB entry
+representing the host is in the FDB. By default this flag is off.
 
 .BI backup_port " DEVICE"
 - if the port loses carrier all traffic will be redirected to the
@@ -2527,6 +2642,10 @@ instead it is sent as-is to the kernel. Later it is used to filter the returned
 interface list by comparing it with the relevant attribute in case the kernel
 didn't filter already. Therefore any string is accepted, but may lead to empty
 output.
+
+.TP
+.B nomaster
+only show devices with no master
 
 .SS  ip link xstats - display extended statistics
 

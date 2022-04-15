@@ -11,14 +11,15 @@ IPOBJ=ip.o ipaddress.o ipaddrlabel.o iproute.o iprule.o ipnetns.o \
     iplink_bridge.o iplink_bridge_slave.o ipfou.o iplink_ipvlan.o \
     iplink_geneve.o iplink_vrf.o iproute_lwtunnel.o ipmacsec.o ipila.o \
     ipvrf.o iplink_xstats.o ipseg6.o iplink_netdevsim.o iplink_rmnet.o \
-    ipnexthop.o ipmptcp.o iplink_bareudp.o iplink_wwan.o ipioam6.o
+    ipnexthop.o ipmptcp.o iplink_bareudp.o iplink_wwan.o ipioam6.o \
+    iplink_amt.o iplink_batadv.o iplink_gtp.o
 
 RTMONOBJ=rtmon.o
 
 include ../config.mk
 
 ALLOBJ=$(IPOBJ) $(RTMONOBJ)
-SCRIPTS=ifcfg rtpr routel routef
+SCRIPTS=routel
 TARGETS=ip rtmon
 
 all: $(TARGETS) $(SCRIPTS)

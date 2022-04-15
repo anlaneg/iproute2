@@ -216,15 +216,61 @@ static void print_encap_rpl(FILE *fp, struct rtattr *encap)
 	print_rpl_srh(fp, srh);
 }
 
+static const char *ioam6_mode_types[IOAM6_IPTUNNEL_MODE_MAX + 1] = {
+	[IOAM6_IPTUNNEL_MODE_INLINE]	= "inline",
+	[IOAM6_IPTUNNEL_MODE_ENCAP]	= "encap",
+	[IOAM6_IPTUNNEL_MODE_AUTO]	= "auto",
+};
+
+static const char *format_ioam6mode_type(int mode)
+{
+	if (mode < IOAM6_IPTUNNEL_MODE_MIN ||
+	    mode > IOAM6_IPTUNNEL_MODE_MAX ||
+	    !ioam6_mode_types[mode])
+		return "<unknown>";
+
+	return ioam6_mode_types[mode];
+}
+
+static __u8 read_ioam6mode_type(const char *mode)
+{
+	__u8 i;
+
+	for (i = IOAM6_IPTUNNEL_MODE_MIN; i <= IOAM6_IPTUNNEL_MODE_MAX; i++) {
+		if (ioam6_mode_types[i] && !strcmp(mode, ioam6_mode_types[i]))
+			return i;
+	}
+
+	return 0;
+}
+
 static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 {
 	struct rtattr *tb[IOAM6_IPTUNNEL_MAX + 1];
 	struct ioam6_trace_hdr *trace;
+	__u32 freq_k, freq_n;
+	__u8 mode;
 
 	parse_rtattr_nested(tb, IOAM6_IPTUNNEL_MAX, encap);
-
-	if (!tb[IOAM6_IPTUNNEL_TRACE])
+	if (!tb[IOAM6_IPTUNNEL_MODE] || !tb[IOAM6_IPTUNNEL_TRACE] ||
+	    !tb[IOAM6_IPTUNNEL_FREQ_K] || !tb[IOAM6_IPTUNNEL_FREQ_N])
 		return;
+
+	freq_k = rta_getattr_u32(tb[IOAM6_IPTUNNEL_FREQ_K]);
+	freq_n = rta_getattr_u32(tb[IOAM6_IPTUNNEL_FREQ_N]);
+
+	print_uint(PRINT_ANY, "freqk", "freq %u", freq_k);
+	print_uint(PRINT_ANY, "freqn", "/%u ", freq_n);
+
+	mode = rta_getattr_u8(tb[IOAM6_IPTUNNEL_MODE]);
+	if (!tb[IOAM6_IPTUNNEL_DST] && mode != IOAM6_IPTUNNEL_MODE_INLINE)
+		return;
+
+	print_string(PRINT_ANY, "mode", "mode %s ", format_ioam6mode_type(mode));
+
+	if (mode != IOAM6_IPTUNNEL_MODE_INLINE)
+		print_string(PRINT_ANY, "tundst", "tundst %s ",
+			     rt_addr_n2a_rta(AF_INET6, tb[IOAM6_IPTUNNEL_DST]));
 
 	trace = RTA_DATA(tb[IOAM6_IPTUNNEL_TRACE]);
 
@@ -898,26 +944,106 @@ out:
 	return ret;
 }
 
+static int parse_ioam6_freq(char *buf, __u32 *freq_k, __u32 *freq_n)
+{
+	char *s;
+	int i;
+
+	s = buf;
+	for (i = 0; *s; *s++ == '/' ? i++ : *s);
+	if (i != 1)
+		return 1;
+
+	s = strtok(buf, "/");
+	if (!s || get_u32(freq_k, s, 10))
+		return 1;
+
+	s = strtok(NULL, "/");
+	if (!s || get_u32(freq_n, s, 10))
+		return 1;
+
+	s = strtok(NULL, "/");
+	if (s)
+		return 1;
+
+	return 0;
+}
+
 static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			     char ***argvp)
 {
+	int ns_found = 0, argc = *argcp;
+	__u16 trace_ns, trace_size = 0;
 	struct ioam6_trace_hdr *trace;
 	char **argv = *argvp;
-	int argc = *argcp;
-	int ns_found = 0;
-	__u16 size = 0;
-	__u32 type = 0;
-	__u16 ns;
+	__u32 trace_type = 0;
+	__u32 freq_k, freq_n;
+	char buf[16] = {0};
+	inet_prefix addr;
+	__u8 mode;
 
-	trace = calloc(1, sizeof(*trace));
-	if (!trace)
-		return -1;
+	if (strcmp(*argv, "freq") != 0) {
+		freq_k = IOAM6_IPTUNNEL_FREQ_MIN;
+		freq_n = IOAM6_IPTUNNEL_FREQ_MIN;
+	} else {
+		NEXT_ARG();
 
-	if (strcmp(*argv, "trace"))
+		if (strlen(*argv) > sizeof(buf) - 1)
+			invarg("Invalid frequency (too long)", *argv);
+
+		strncpy(buf, *argv, sizeof(buf));
+
+		if (parse_ioam6_freq(buf, &freq_k, &freq_n))
+			invarg("Invalid frequency (malformed)", *argv);
+
+		if (freq_k < IOAM6_IPTUNNEL_FREQ_MIN ||
+		    freq_k > IOAM6_IPTUNNEL_FREQ_MAX)
+			invarg("Out of bound \"k\" frequency", *argv);
+
+		if (freq_n < IOAM6_IPTUNNEL_FREQ_MIN ||
+		    freq_n > IOAM6_IPTUNNEL_FREQ_MAX)
+			invarg("Out of bound \"n\" frequency", *argv);
+
+		if (freq_k > freq_n)
+			invarg("Frequency with k > n is forbidden", *argv);
+
+		NEXT_ARG();
+	}
+
+	if (strcmp(*argv, "mode") != 0) {
+		mode = IOAM6_IPTUNNEL_MODE_INLINE;
+	} else {
+		NEXT_ARG();
+
+		mode = read_ioam6mode_type(*argv);
+		if (!mode)
+			invarg("Invalid mode", *argv);
+
+		NEXT_ARG();
+	}
+
+	if (strcmp(*argv, "tundst") != 0) {
+		if (mode != IOAM6_IPTUNNEL_MODE_INLINE)
+			missarg("tundst");
+	} else {
+		if (mode == IOAM6_IPTUNNEL_MODE_INLINE)
+			invarg("Inline mode does not need tundst", *argv);
+
+		NEXT_ARG();
+
+		get_addr(&addr, *argv, AF_INET6);
+		if (addr.family != AF_INET6 || addr.bytelen != 16)
+			invarg("Invalid IPv6 address for tundst", *argv);
+
+		NEXT_ARG();
+	}
+
+	if (strcmp(*argv, "trace") != 0)
 		missarg("trace");
 
 	NEXT_ARG();
-	if (strcmp(*argv, "prealloc"))
+
+	if (strcmp(*argv, "prealloc") != 0)
 		missarg("prealloc");
 
 	while (NEXT_ARG_OK()) {
@@ -926,63 +1052,60 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 		if (strcmp(*argv, "type") == 0) {
 			NEXT_ARG();
 
-			if (type)
+			if (trace_type)
 				duparg2("type", *argv);
 
-			if (get_u32(&type, *argv, 0) || !type)
-				invarg("Invalid type", *argv);
-
-			trace->type_be32 = htonl(type << 8);
-
+			if (get_u32(&trace_type, *argv, 0) || !trace_type)
+				invarg("Invalid trace type", *argv);
 		} else if (strcmp(*argv, "ns") == 0) {
 			NEXT_ARG();
 
 			if (ns_found++)
 				duparg2("ns", *argv);
 
-			if (!type)
-				missarg("type");
-
-			if (get_u16(&ns, *argv, 0))
+			if (get_u16(&trace_ns, *argv, 0))
 				invarg("Invalid namespace ID", *argv);
-
-			trace->namespace_id = htons(ns);
-
 		} else if (strcmp(*argv, "size") == 0) {
 			NEXT_ARG();
 
-			if (size)
+			if (trace_size)
 				duparg2("size", *argv);
 
-			if (!type)
-				missarg("type");
-			if (!ns_found)
-				missarg("ns");
+			if (get_u16(&trace_size, *argv, 0) || !trace_size)
+				invarg("Invalid trace size", *argv);
 
-			if (get_u16(&size, *argv, 0) || !size)
-				invarg("Invalid size", *argv);
+			if (trace_size % 4)
+				invarg("Trace size must be a 4-octet multiple",
+				       *argv);
 
-			if (size % 4)
-				invarg("Size must be a 4-octet multiple", *argv);
-			if (size > IOAM6_TRACE_DATA_SIZE_MAX)
-				invarg("Size too big", *argv);
-
-			trace->remlen = (__u8)(size / 4);
-
+			if (trace_size > IOAM6_TRACE_DATA_SIZE_MAX)
+				invarg("Trace size is too big", *argv);
 		} else {
 			break;
 		}
 	}
 
-	if (!type)
+	if (!trace_type)
 		missarg("type");
 	if (!ns_found)
 		missarg("ns");
-	if (!size)
+	if (!trace_size)
 		missarg("size");
 
-	if (rta_addattr_l(rta, len, IOAM6_IPTUNNEL_TRACE, trace,
-			  sizeof(*trace))) {
+	trace = calloc(1, sizeof(*trace));
+	if (!trace)
+		return -1;
+
+	trace->type_be32 = htonl(trace_type << 8);
+	trace->namespace_id = htons(trace_ns);
+	trace->remlen = (__u8)(trace_size / 4);
+
+	if (rta_addattr32(rta, len, IOAM6_IPTUNNEL_FREQ_K, freq_k) ||
+	    rta_addattr32(rta, len, IOAM6_IPTUNNEL_FREQ_N, freq_n) ||
+	    rta_addattr8(rta, len, IOAM6_IPTUNNEL_MODE, mode) ||
+	    (mode != IOAM6_IPTUNNEL_MODE_INLINE &&
+	     rta_addattr_l(rta, len, IOAM6_IPTUNNEL_DST, &addr.data, addr.bytelen)) ||
+	    rta_addattr_l(rta, len, IOAM6_IPTUNNEL_TRACE, trace, sizeof(*trace))) {
 		free(trace);
 		return -1;
 	}

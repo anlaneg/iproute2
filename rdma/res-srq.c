@@ -70,9 +70,8 @@ static int filter_srq_range_qps(struct rd *rd, struct nlattr **qp_line,
 					 *delimiter, tmp_min_range,
 					 tmp_max_range);
 
-			if (strlen(qp_str) + strlen(tmp) >= MAX_QP_STR_LEN)
-				return -EINVAL;
-			strncat(qp_str, tmp, sizeof(tmp) - 1);
+			strncat(qp_str, tmp,
+				MAX_QP_STR_LEN - strlen(qp_str) - 1);
 
 			memset(tmp, 0, strlen(tmp));
 			*delimiter = ",";
@@ -94,9 +93,7 @@ static int filter_srq_range_qps(struct rd *rd, struct nlattr **qp_line,
 		snprintf(tmp, sizeof(tmp), "%s%d-%d", *delimiter,
 			 tmp_min_range, tmp_max_range);
 
-	if (strlen(qp_str) + strlen(tmp) >= MAX_QP_STR_LEN)
-		return -EINVAL;
-	strncat(qp_str, tmp, sizeof(tmp) - 1);
+	strncat(qp_str, tmp, MAX_QP_STR_LEN - strlen(qp_str) - 1);
 	*delimiter = ",";
 	return 0;
 }
@@ -137,9 +134,8 @@ static int get_srq_qps(struct rd *rd, struct nlattr *qp_table,  char *qp_str)
 					qp_line[RDMA_NLDEV_ATTR_RES_LQPN]))
 				continue;
 			snprintf(tmp, sizeof(tmp), "%s%d", delimiter, qpn);
-			if (strlen(qp_str) + strlen(tmp) >= MAX_QP_STR_LEN)
-				goto out;
-			strncat(qp_str, tmp, sizeof(tmp) - 1);
+			strncat(qp_str, tmp,
+				MAX_QP_STR_LEN - strlen(qp_str) - 1);
 			delimiter = ",";
 		} else if (qp_line[RDMA_NLDEV_ATTR_MIN_RANGE] &&
 			   qp_line[RDMA_NLDEV_ATTR_MAX_RANGE]) {
@@ -178,9 +174,17 @@ static int res_srq_line(struct rd *rd, const char *name, int idx,
 		return MNL_CB_ERROR;
 
 	if (nla_line[RDMA_NLDEV_ATTR_RES_PID]) {
+		SPRINT_BUF(b);
+
 		pid = mnl_attr_get_u32(nla_line[RDMA_NLDEV_ATTR_RES_PID]);
-		comm = get_task_name(pid);
+		if (!get_task_name(pid, b, sizeof(b)))
+			comm = b;
+	} else if (nla_line[RDMA_NLDEV_ATTR_RES_KERN_NAME]) {
+		/* discard const from mnl_attr_get_str */
+		comm = (char *)mnl_attr_get_str(
+			nla_line[RDMA_NLDEV_ATTR_RES_KERN_NAME]);
 	}
+
 	if (rd_is_filtered_attr(rd, "pid", pid,
 				nla_line[RDMA_NLDEV_ATTR_RES_PID]))
 		goto out;
@@ -213,27 +217,20 @@ static int res_srq_line(struct rd *rd, const char *name, int idx,
 			MNL_CB_OK)
 		goto out;
 
-	if (nla_line[RDMA_NLDEV_ATTR_RES_KERN_NAME])
-		/* discard const from mnl_attr_get_str */
-		comm = (char *)mnl_attr_get_str(
-			nla_line[RDMA_NLDEV_ATTR_RES_KERN_NAME]);
-
 	open_json_object(NULL);
 	print_dev(rd, idx, name);
-	res_print_uint(rd, "srqn", srqn, nla_line[RDMA_NLDEV_ATTR_RES_SRQN]);
+	res_print_u32(rd, "srqn", srqn, nla_line[RDMA_NLDEV_ATTR_RES_SRQN]);
 	print_type(rd, type);
 	print_qps(qp_str);
-	res_print_uint(rd, "pdn", pdn, nla_line[RDMA_NLDEV_ATTR_RES_PDN]);
-	res_print_uint(rd, "cqn", cqn, nla_line[RDMA_NLDEV_ATTR_RES_CQN]);
-	res_print_uint(rd, "pid", pid, nla_line[RDMA_NLDEV_ATTR_RES_PID]);
+	res_print_u32(rd, "pdn", pdn, nla_line[RDMA_NLDEV_ATTR_RES_PDN]);
+	res_print_u32(rd, "cqn", cqn, nla_line[RDMA_NLDEV_ATTR_RES_CQN]);
+	res_print_u32(rd, "pid", pid, nla_line[RDMA_NLDEV_ATTR_RES_PID]);
 	print_comm(rd, comm, nla_line);
 
 	print_driver_table(rd, nla_line[RDMA_NLDEV_ATTR_DRIVER]);
 	newline(rd);
 
 out:
-	if (nla_line[RDMA_NLDEV_ATTR_RES_PID])
-		free(comm);
 	return MNL_CB_OK;
 }
 

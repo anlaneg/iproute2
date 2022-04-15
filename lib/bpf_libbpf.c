@@ -23,12 +23,14 @@
 
 #include "bpf_util.h"
 
-static int verbose_print(enum libbpf_print_level level, const char *format, va_list args)
+static int __attribute__((format(printf, 2, 0)))
+verbose_print(enum libbpf_print_level level, const char *format, va_list args)
 {
 	return vfprintf(stderr, format, args);
 }
 
-static int silent_print(enum libbpf_print_level level, const char *format, va_list args)
+static int __attribute__((format(printf, 2, 0)))
+silent_print(enum libbpf_print_level level, const char *format, va_list args)
 {
 	if (level > LIBBPF_WARN)
 		return 0;
@@ -52,18 +54,18 @@ static const char *get_bpf_program__section_name(const struct bpf_program *prog)
 static int create_map(const char *name, struct bpf_elf_map *map,
 		      __u32 ifindex, int inner_fd)
 {
-	struct bpf_create_map_attr map_attr = {};
+	union bpf_attr attr = {};
 
-	map_attr.name = name;
-	map_attr.map_type = map->type;
-	map_attr.map_flags = map->flags;
-	map_attr.key_size = map->size_key;
-	map_attr.value_size = map->size_value;
-	map_attr.max_entries = map->max_elem;
-	map_attr.map_ifindex = ifindex;
-	map_attr.inner_map_fd = inner_fd;
+	attr.map_type = map->type;
+	strlcpy(attr.map_name, name, sizeof(attr.map_name));
+	attr.map_flags = map->flags;
+	attr.key_size = map->size_key;
+	attr.value_size = map->size_value;
+	attr.max_entries = map->max_elem;
+	attr.map_ifindex = ifindex;
+	attr.inner_map_fd = inner_fd;
 
-	return bpf_create_map_xattr(&map_attr);
+	return bpf(BPF_MAP_CREATE, &attr, sizeof(attr));
 }
 
 static int create_map_in_map(struct bpf_object *obj, struct bpf_map *map,
@@ -246,6 +248,7 @@ static int handle_legacy_maps(struct bpf_object *obj)
 
 static int load_bpf_object(struct bpf_cfg_in *cfg)
 {
+	struct bpf_object_load_attr attr = {};
 	struct bpf_program *p, *prog = NULL;
 	struct bpf_object *obj;
 	char root_path[PATH_MAX];
@@ -302,7 +305,11 @@ static int load_bpf_object(struct bpf_cfg_in *cfg)
 	if (ret)
 		goto unload_obj;
 
-	ret = bpf_object__load(obj);
+	attr.obj = obj;
+	if (cfg->verbose)
+		attr.log_level = 2;
+
+	ret = bpf_object__load_xattr(&attr);
 	if (ret)
 		goto unload_obj;
 

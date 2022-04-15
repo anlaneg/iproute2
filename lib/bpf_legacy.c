@@ -33,7 +33,6 @@
 #include <sys/un.h>
 #include <sys/vfs.h>
 #include <sys/mount.h>
-#include <sys/syscall.h>
 #include <sys/sendfile.h>
 #include <sys/resource.h>
 
@@ -137,18 +136,6 @@ static inline __u64 bpf_ptr_to_u64(const void *ptr)
 	return (__u64)(unsigned long)ptr;
 }
 
-//执行bpf系统调用
-static int bpf(int cmd, union bpf_attr *attr, unsigned int size)
-{
-#ifdef __NR_bpf
-	return syscall(__NR_bpf, cmd, attr, size);
-#else
-	fprintf(stderr, "No bpf syscall, kernel headers too old?\n");
-	errno = ENOSYS;
-	return -1;
-#endif
-}
-
 static int bpf_map_update(int fd, const void *key, const void *value,
 			  uint64_t flags)
 {
@@ -207,12 +194,30 @@ int bpf_dump_prog_info(FILE *f, uint32_t id)
 	if (!ret && len) {
 		int jited = !!info.jited_prog_len;
 
+		print_string(PRINT_ANY, "name", "name %s ", info.name);
 		print_string(PRINT_ANY, "tag", "tag %s ",
 			     hexstring_n2a(info.tag, sizeof(info.tag),
 					   tmp, sizeof(tmp)));
 		print_uint(PRINT_JSON, "jited", NULL, jited);
 		if (jited && !is_json_context())
 			fprintf(f, "jited ");
+
+		if (show_details) {
+			if (info.load_time) {
+				/* ns since boottime */
+				print_lluint(PRINT_ANY, "load_time",
+					     "load_time %llu ", info.load_time);
+
+				print_luint(PRINT_ANY, "created_by_uid",
+					    "created_by_uid %lu ",
+					    info.created_by_uid);
+			}
+
+			if (info.btf_id)
+				print_luint(PRINT_ANY, "btf_id", "btf_id %lu ",
+					    info.btf_id);
+		}
+
 		dump_ok = 1;
 	}
 
@@ -1168,6 +1173,13 @@ int bpf_prog_load_dev(enum bpf_prog_type type, const struct bpf_insn *insns/*指
 
 	//加载代码段到kernel
 	return bpf(BPF_PROG_LOAD, &attr, sizeof(attr));
+}
+
+int bpf_program_load(enum bpf_prog_type type, const struct bpf_insn *insns,
+		     size_t size_insns, const char *license, char *log,
+		     size_t size_log)
+{
+	return bpf_prog_load_dev(type, insns, size_insns, license, 0, log, size_log);
 }
 
 #ifdef HAVE_ELF

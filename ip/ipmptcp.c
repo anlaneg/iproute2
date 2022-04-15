@@ -1,31 +1,39 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <rt_names.h>
-#include <errno.h>
 
 #include <linux/genetlink.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <linux/mptcp.h>
 
 #include "utils.h"
 #include "ip_common.h"
-#include "libgenl.h"
 #include "json_print.h"
+#include "libgenl.h"
+#include "libnetlink.h"
+#include "ll_map.h"
 
 static void usage(void)
 {
 	fprintf(stderr,
 		"Usage:	ip mptcp endpoint add ADDRESS [ dev NAME ] [ id ID ]\n"
 		"				      [ port NR ] [ FLAG-LIST ]\n"
-		"	ip mptcp endpoint delete id ID\n"
+		"	ip mptcp endpoint delete id ID [ ADDRESS ]\n"
+		"	ip mptcp endpoint change [ id ID ] [ ADDRESS ] [ port NR ] CHANGE-OPT\n"
 		"	ip mptcp endpoint show [ id ID ]\n"
 		"	ip mptcp endpoint flush\n"
 		"	ip mptcp limits set [ subflows NR ] [ add_addr_accepted NR ]\n"
 		"	ip mptcp limits show\n"
 		"	ip mptcp monitor\n"
 		"FLAG-LIST := [ FLAG-LIST ] FLAG\n"
-		"FLAG  := [ signal | subflow | backup ]\n");
+		"FLAG  := [ signal | subflow | backup | fullmesh ]\n"
+		"CHANGE-OPT := [ backup | nobackup | fullmesh | nofullmesh ]\n");
 
 	exit(-1);
 }
@@ -39,6 +47,8 @@ static int genl_family = -1;
 	GENL_REQUEST(_req, MPTCP_BUFLEN, genl_family, 0,	\
 		     MPTCP_PM_VER, _cmd, _flags)
 
+#define MPTCP_PM_ADDR_FLAG_NONE 0x0
+
 /* Mapping from argument to address flag mask */
 static const struct {
 	const char *name;
@@ -47,6 +57,9 @@ static const struct {
 	{ "signal",		MPTCP_PM_ADDR_FLAG_SIGNAL },
 	{ "subflow",		MPTCP_PM_ADDR_FLAG_SUBFLOW },
 	{ "backup",		MPTCP_PM_ADDR_FLAG_BACKUP },
+	{ "fullmesh",		MPTCP_PM_ADDR_FLAG_FULLMESH },
+	{ "nobackup",		MPTCP_PM_ADDR_FLAG_NONE },
+	{ "nofullmesh",		MPTCP_PM_ADDR_FLAG_NONE }
 };
 
 static void print_mptcp_addr_flags(unsigned int flags)
@@ -89,9 +102,11 @@ static int get_flags(const char *arg, __u32 *flags)
 	return -1;
 }
 
-static int mptcp_parse_opt(int argc, char **argv, struct nlmsghdr *n,
-			 bool adding)
+static int mptcp_parse_opt(int argc, char **argv, struct nlmsghdr *n, int cmd)
 {
+	bool setting = cmd == MPTCP_PM_CMD_SET_FLAGS;
+	bool adding = cmd == MPTCP_PM_CMD_ADD_ADDR;
+	bool deling = cmd == MPTCP_PM_CMD_DEL_ADDR;
 	struct rtattr *attr_addr;
 	bool addr_set = false;
 	inet_prefix address;
@@ -104,6 +119,17 @@ static int mptcp_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 	ll_init_map(&rth);
 	while (argc > 0) {
 		if (get_flags(*argv, &flags) == 0) {
+			if (adding &&
+			    (flags & MPTCP_PM_ADDR_FLAG_SIGNAL) &&
+			    (flags & MPTCP_PM_ADDR_FLAG_FULLMESH))
+				invarg("flags mustn't have both signal and fullmesh", *argv);
+
+			/* allow changing the 'backup' and 'fullmesh' flags only */
+			if (setting &&
+			    (flags & ~(MPTCP_PM_ADDR_FLAG_BACKUP |
+				       MPTCP_PM_ADDR_FLAG_FULLMESH)))
+				invarg("invalid flags, backup and fullmesh only", *argv);
+
 		} else if (matches(*argv, "id") == 0) {
 			NEXT_ARG();
 
@@ -140,11 +166,20 @@ static int mptcp_parse_opt(int argc, char **argv, struct nlmsghdr *n,
 	if (!addr_set && adding)
 		missarg("ADDRESS");
 
-	if (!id_set && !adding)
+	if (!id_set && deling) {
 		missarg("ID");
+	} else if (id_set && deling) {
+		if (id && addr_set)
+			invarg("invalid for non-zero id address\n", "ADDRESS");
+		else if (!id && !addr_set)
+			invarg("address is needed for deleting id 0 address\n", "ID");
+	}
 
-	if (port && !(flags & MPTCP_PM_ADDR_FLAG_SIGNAL))
+	if (adding && port && !(flags & MPTCP_PM_ADDR_FLAG_SIGNAL))
 		invarg("flags must have signal when using port", "port");
+
+	if (setting && id_set && port)
+		invarg("port can't be used with id", "port");
 
 	attr_addr = addattr_nest(n, MPTCP_BUFLEN,
 				 MPTCP_PM_ATTR_ADDR | NLA_F_NESTED);
@@ -176,7 +211,7 @@ static int mptcp_addr_modify(int argc, char **argv, int cmd)
 	MPTCP_REQUEST(req, cmd, NLM_F_REQUEST);
 	int ret;
 
-	ret = mptcp_parse_opt(argc, argv, &req.n, cmd == MPTCP_PM_CMD_ADD_ADDR);
+	ret = mptcp_parse_opt(argc, argv, &req.n, cmd);
 	if (ret)
 		return ret;
 
@@ -292,14 +327,18 @@ static int mptcp_addr_show(int argc, char **argv)
 	if (argc <= 0)
 		return mptcp_addr_dump();
 
-	ret = mptcp_parse_opt(argc, argv, &req.n, false);
+	ret = mptcp_parse_opt(argc, argv, &req.n, MPTCP_PM_CMD_GET_ADDR);
 	if (ret)
 		return ret;
 
 	if (rtnl_talk(&genl_rth, &req.n, &answer) < 0)
 		return -2;
 
-	return print_mptcp_addr(answer, stdout);
+	new_json_obj(json);
+	ret = print_mptcp_addr(answer, stdout);
+	delete_json_obj();
+	fflush(stdout);
+	return ret;
 }
 
 static int mptcp_addr_flush(int argc, char **argv)
@@ -524,6 +563,9 @@ int do_mptcp(int argc, char **argv)
 		if (matches(*argv, "add") == 0)
 			return mptcp_addr_modify(argc-1, argv+1,
 						 MPTCP_PM_CMD_ADD_ADDR);
+		if (matches(*argv, "change") == 0)
+			return mptcp_addr_modify(argc-1, argv+1,
+						 MPTCP_PM_CMD_SET_FLAGS);
 		if (matches(*argv, "delete") == 0)
 			return mptcp_addr_modify(argc-1, argv+1,
 						 MPTCP_PM_CMD_DEL_ADDR);

@@ -262,7 +262,8 @@ int get_percent_rate64(__u64 *rate, const char *str, const char *dev)
 	return get_rate64(rate, r_str);
 }
 
-void tc_print_rate(enum output_type t, const char *key, const char *fmt,
+void __attribute__((format(printf, 3, 0)))
+tc_print_rate(enum output_type t, const char *key, const char *fmt,
 		   unsigned long long rate)
 {
 	print_rate(use_iec, t, key, fmt, rate);
@@ -499,8 +500,7 @@ static int parse_action_control_slash_spaces(int *argc_p, char ***argv_p,
 			result_p = &result2;
 			NEXT_ARG();
 			/* fall-through */
-		case 0: /* fall-through */
-		case 2:
+		case 0: 
 			ret = parse_action_control(&argc, &argv,
 						   result_p, allow_num);
 			if (ret)
@@ -806,10 +806,7 @@ static void print_masked_type(__u32 type_max,
 			      const char *name, struct rtattr *attr,
 			      struct rtattr *mask_attr, bool newline)
 {
-	SPRINT_BUF(namefrm);
 	__u32 value, mask;
-	SPRINT_BUF(out);
-	size_t done;
 
 	if (!attr)
 		return;
@@ -817,27 +814,18 @@ static void print_masked_type(__u32 type_max,
 	value = rta_getattr_type(attr);
 	mask = mask_attr ? rta_getattr_type(mask_attr) : type_max;
 
-	if (is_json_context()) {
-		sprintf(namefrm, "\n  %s %%u", name);
-		print_hu(PRINT_ANY, name, namefrm,
-			 rta_getattr_type(attr));
-		if (mask != type_max) {
-			char mask_name[SPRINT_BSIZE-6];
+	if (newline)
+		print_string(PRINT_FP, NULL, "%s  ", _SL_);
+	else
+		print_string(PRINT_FP, NULL, " ", _SL_);
 
-			sprintf(mask_name, "%s_mask", name);
-			if (newline)
-				print_string(PRINT_FP, NULL, "%s ", _SL_);
-			sprintf(namefrm, " %s %%u", mask_name);
-			print_hu(PRINT_ANY, mask_name, namefrm, mask);
-		}
-	} else {
-		done = sprintf(out, "%u", value);
-		if (mask != type_max)
-			sprintf(out + done, "/0x%x", mask);
-		if (newline)
-			print_string(PRINT_FP, NULL, "%s ", _SL_);
-		sprintf(namefrm, " %s %%s", name);
-		print_string(PRINT_ANY, name, namefrm, out);
+	print_uint_name_value(name, value);
+
+	if (mask != type_max) {
+		char mask_name[SPRINT_BSIZE-6];
+
+		snprintf(mask_name, sizeof(mask_name), "%s_mask", name);
+		print_hex(PRINT_ANY, mask_name, "/0x%x", mask);
 	}
 }
 
