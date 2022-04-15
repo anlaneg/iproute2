@@ -1724,6 +1724,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			err = eswitch_mode_get(typestr, &opts->eswitch_mode);
 			if (err)
 				return err;
+			/*标明为eswitch mode*/
 			o_found |= DL_OPT_ESWITCH_MODE;
 		} else if (dl_argv_match(dl, "inline-mode") &&
 			   (o_all & DL_OPT_ESWITCH_INLINE_MODE)) {
@@ -2178,9 +2179,11 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_SB_TC_INDEX,
 				 opts->sb_tc_index);
 	if (opts->present & DL_OPT_ESWITCH_MODE)
+	    /*如果有eswitch_mode,则填充eswitch mode*/
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_ESWITCH_MODE,
 				 opts->eswitch_mode);
 	if (opts->present & DL_OPT_ESWITCH_INLINE_MODE)
+	    /*如果有eswitch_inline_mode,则填充eswitch inline mode*/
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_INLINE_MODE,
 				opts->eswitch_inline_mode);
 	if (opts->present & DL_OPT_DPIPE_TABLE_NAME)
@@ -2189,6 +2192,7 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_DPIPE_TABLE_COUNTERS)
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_DPIPE_TABLE_COUNTERS_ENABLED,
 				opts->dpipe_counters_enabled);
+	/*填充eswitch encap mode*/
 	if (opts->present & DL_OPT_ESWITCH_ENCAP_MODE)
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_ENCAP_MODE,
 				opts->eswitch_encap_mode);
@@ -2703,18 +2707,23 @@ static void pr_out_eswitch(struct dl *dl, struct nlattr **tb)
 {
 	__pr_out_handle_start(dl, tb, true, false);
 
+	/*显示devlink mode*/
 	if (tb[DEVLINK_ATTR_ESWITCH_MODE]) {
 		check_indent_newline(dl);
 		print_string(PRINT_ANY, "mode", "mode %s",
 			     eswitch_mode_name(mnl_attr_get_u16(
 				     tb[DEVLINK_ATTR_ESWITCH_MODE])));
 	}
+
+	/*显示devlink inline-mode*/
 	if (tb[DEVLINK_ATTR_ESWITCH_INLINE_MODE]) {
 		check_indent_newline(dl);
 		print_string(PRINT_ANY, "inline-mode", "inline-mode %s",
 			     eswitch_inline_mode_name(mnl_attr_get_u8(
 				     tb[DEVLINK_ATTR_ESWITCH_INLINE_MODE])));
 	}
+
+	/*显示devlink encap-mode*/
 	if (tb[DEVLINK_ATTR_ESWITCH_ENCAP_MODE]) {
 		check_indent_newline(dl);
 		print_string(PRINT_ANY, "encap-mode", "encap-mode %s",
