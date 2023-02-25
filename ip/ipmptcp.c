@@ -337,6 +337,7 @@ static int mptcp_addr_show(int argc, char **argv)
 	new_json_obj(json);
 	ret = print_mptcp_addr(answer, stdout);
 	delete_json_obj();
+	free(answer);
 	fflush(stdout);
 	return ret;
 }
@@ -435,9 +436,13 @@ static int mptcp_limit_get_set(int argc, char **argv, int cmd)
 	if (rtnl_talk(&genl_rth, &req.n, do_get ? &answer : NULL) < 0)
 		return -2;
 
-	if (do_get)
-		return print_mptcp_limit(answer, stdout);
-	return 0;
+	ret = 0;
+	if (do_get) {
+		ret = print_mptcp_limit(answer, stdout);
+		free(answer);
+	}
+
+	return ret;
 }
 
 static const char * const event_to_str[] = {
@@ -449,6 +454,8 @@ static const char * const event_to_str[] = {
 	[MPTCP_EVENT_SUB_ESTABLISHED] = "SF_ESTABLISHED",
 	[MPTCP_EVENT_SUB_CLOSED] = "SF_CLOSED",
 	[MPTCP_EVENT_SUB_PRIORITY] = "SF_PRIO",
+	[MPTCP_EVENT_LISTENER_CREATED] = "LISTENER_CREATED",
+	[MPTCP_EVENT_LISTENER_CLOSED] = "LISTENER_CLOSED",
 };
 
 static void print_addr(const char *key, int af, struct rtattr *value)
@@ -487,11 +494,12 @@ static int mptcp_monitor_msg(struct rtnl_ctrl_data *ctrl,
 		goto out;
 	}
 
-	printf("[%14s]", event_to_str[ghdr->cmd]);
+	printf("[%16s]", event_to_str[ghdr->cmd]);
 
 	parse_rtattr(tb, MPTCP_ATTR_MAX, (void *) ghdr + GENL_HDRLEN, len);
 
-	printf(" token=%08x", rta_getattr_u32(tb[MPTCP_ATTR_TOKEN]));
+	if (tb[MPTCP_ATTR_TOKEN])
+		printf(" token=%08x", rta_getattr_u32(tb[MPTCP_ATTR_TOKEN]));
 
 	if (tb[MPTCP_ATTR_REM_ID])
 		printf(" remid=%u", rta_getattr_u8(tb[MPTCP_ATTR_REM_ID]));

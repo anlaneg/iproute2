@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * bpf.c	BPF common code
- *
- *		This program is free software; you can distribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Daniel Borkmann <daniel@iogearbox.net>
  *		Jiri Pirko <jiri@resnulli.us>
@@ -876,7 +872,7 @@ static int bpf_obj_pinned(const char *pathname, enum bpf_prog_type type)
 //bpf类型参数解析
 static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪些参数*/)
 {
-	const char *file, *section, *uds_name;
+	const char *file, *section, *uds_name, *prog_name;
 	bool verbose = false;
 	int i, ret, argc;
 	char **argv;
@@ -910,7 +906,7 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 	}
 
 	NEXT_ARG();
-	file = section = uds_name = NULL;
+	file = section = uds_name = prog_name = NULL;
 	if (cfg->mode == EBPF_OBJECT || cfg->mode == EBPF_PINNED) {
 	    /*取bpf文件名称*/
 		file = *argv;
@@ -951,6 +947,12 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 		    /*用户显示指定了section,使用用户指定的section*/
 			NEXT_ARG();
 			section = *argv;
+			NEXT_ARG_FWD();
+		}
+
+		if (argc > 0 && strcmp(*argv, "program") == 0) {
+			NEXT_ARG();
+			prog_name = *argv;
 			NEXT_ARG_FWD();
 		}
 
@@ -995,6 +997,7 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 	cfg->argc    = argc;
 	cfg->argv    = argv;
 	cfg->verbose = verbose;
+	cfg->prog_name = prog_name;
 
 	return ret;
 }

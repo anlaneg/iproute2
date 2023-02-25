@@ -1,13 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * iplink.c		"ip link".
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
- *
  */
 
 #include <stdio.h>
@@ -35,9 +30,6 @@
 
 #define IPLINK_IOCTL_COMPAT	1
 
-#ifndef GSO_MAX_SIZE
-#define GSO_MAX_SIZE		65536
-#endif
 #ifndef GSO_MAX_SEGS
 #define GSO_MAX_SEGS		65535
 #endif
@@ -51,13 +43,13 @@ void iplink_types_usage(void)
 	/* Remember to add new entry here if new type is added. */
 	fprintf(stderr,
 		"TYPE := { amt | bareudp | bond | bond_slave | bridge | bridge_slave |\n"
-		"          dummy | erspan | geneve | gre | gretap | gtp | ifb |\n"
+		"          dsa | dummy | erspan | geneve | gre | gretap | gtp | ifb |\n"
 		"          ip6erspan | ip6gre | ip6gretap | ip6tnl |\n"
 		"          ipip | ipoib | ipvlan | ipvtap |\n"
 		"          macsec | macvlan | macvtap |\n"
 		"          netdevsim | nlmon | rmnet | sit | team | team_slave |\n"
 		"          vcan | veth | vlan | vrf | vti | vxcan | vxlan | wwan |\n"
-		"          xfrm }\n");
+		"          xfrm | virt_wifi }\n");
 }
 
 void iplink_usage(void)
@@ -71,6 +63,7 @@ void iplink_usage(void)
 			"		    [ mtu MTU ] [index IDX ]\n"
 			"		    [ numtxqueues QUEUE_COUNT ]\n"
 			"		    [ numrxqueues QUEUE_COUNT ]\n"
+			"		    [ netns { PID | NAME } ]\n"
 			"		    type TYPE [ ARGS ]\n"
 			"\n"
 			"	ip link delete { DEVICE | dev DEVICE | group DEVGROUP } type TYPE [ ARGS ]\n"
@@ -110,15 +103,19 @@ void iplink_usage(void)
 		"			 [ node_guid EUI64 ]\n"
 		"			 [ port_guid EUI64 ] ]\n"
 		"		[ { xdp | xdpgeneric | xdpdrv | xdpoffload } { off |\n"
+#ifdef HAVE_LIBBPF
+		"			  object FILE [ { section | program } NAME ] [ verbose ] |\n"
+#else
 		"			  object FILE [ section NAME ] [ verbose ] |\n"
+#endif
 		"			  pinned FILE } ]\n"
 		"		[ master DEVICE ][ vrf NAME ]\n"
 		"		[ nomaster ]\n"
 		"		[ addrgenmode { eui64 | none | stable_secret | random } ]\n"
 		"		[ protodown { on | off } ]\n"
 		"		[ protodown_reason PREASON { on | off } ]\n"
-		"		[ gso_max_size BYTES ] | [ gso_max_segs PACKETS ]\n"
-		"		[ gro_max_size BYTES ]\n"
+		"		[ gso_max_size BYTES ] [ gso_ipv4_max_size BYTES ] [ gso_max_segs PACKETS ]\n"
+		"		[ gro_max_size BYTES ] [ gro_ipv4_max_size BYTES ]\n"
 		"\n"
 		"	ip link show [ DEVICE | group GROUP ] [up] [master DEV] [vrf NAME] [type TYPE]\n"
 		"		[nomaster]\n"
@@ -965,6 +962,24 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 				       *argv);
 			addattr32(&req->n, sizeof(*req),
 				  IFLA_GRO_MAX_SIZE, max_size);
+		} else if (strcmp(*argv, "gso_ipv4_max_size") == 0) {
+			unsigned int max_size;
+
+			NEXT_ARG();
+			if (get_unsigned(&max_size, *argv, 0))
+				invarg("Invalid \"gso_ipv4_max_size\" value\n",
+				       *argv);
+			addattr32(&req->n, sizeof(*req),
+				  IFLA_GSO_IPV4_MAX_SIZE, max_size);
+		}  else if (strcmp(*argv, "gro_ipv4_max_size") == 0) {
+			unsigned int max_size;
+
+			NEXT_ARG();
+			if (get_unsigned(&max_size, *argv, 0))
+				invarg("Invalid \"gro_ipv4_max_size\" value\n",
+				       *argv);
+			addattr32(&req->n, sizeof(*req),
+				  IFLA_GRO_IPV4_MAX_SIZE, max_size);
 		} else if (strcmp(*argv, "parentdev") == 0) {
 			NEXT_ARG();
 			addattr_l(&req->n, sizeof(*req), IFLA_PARENT_DEV_NAME,
@@ -1137,7 +1152,12 @@ static int iplink_modify(int cmd, unsigned int flags, int argc, char **argv)
 		return -1;
 	}
 
-	if (rtnl_talk(&rth, &req.n, NULL) < 0)
+	if (echo_request)
+		ret = rtnl_echo_talk(&rth, &req.n, json, print_linkinfo);
+	else
+		ret = rtnl_talk(&rth, &req.n, NULL);
+
+	if (ret)
 		return -2;
 
 	/* remove device from cache; next use can refresh with new data */
@@ -1532,6 +1552,65 @@ static int do_set(int argc, char **argv)
 }
 #endif /* IPLINK_IOCTL_COMPAT */
 
+void print_mpls_link_stats(FILE *fp, const struct mpls_link_stats *stats,
+			   const char *indent)
+{
+	unsigned int cols[] = {
+		strlen("*X: bytes"),
+		strlen("packets"),
+		strlen("errors"),
+		strlen("dropped"),
+		strlen("noroute"),
+	};
+
+	if (is_json_context()) {
+		/* RX stats */
+		open_json_object("rx");
+		print_u64(PRINT_JSON, "bytes", NULL, stats->rx_bytes);
+		print_u64(PRINT_JSON, "packets", NULL, stats->rx_packets);
+		print_u64(PRINT_JSON, "errors", NULL, stats->rx_errors);
+		print_u64(PRINT_JSON, "dropped", NULL, stats->rx_dropped);
+		print_u64(PRINT_JSON, "noroute", NULL, stats->rx_noroute);
+		close_json_object();
+
+		/* TX stats */
+		open_json_object("tx");
+		print_u64(PRINT_JSON, "bytes", NULL, stats->tx_bytes);
+		print_u64(PRINT_JSON, "packets", NULL, stats->tx_packets);
+		print_u64(PRINT_JSON, "errors", NULL, stats->tx_errors);
+		print_u64(PRINT_JSON, "dropped", NULL, stats->tx_dropped);
+		close_json_object();
+	} else {
+		size_columns(cols, ARRAY_SIZE(cols), stats->rx_bytes,
+			     stats->rx_packets, stats->rx_errors,
+			     stats->rx_dropped, stats->rx_noroute);
+		size_columns(cols, ARRAY_SIZE(cols), stats->tx_bytes,
+			     stats->tx_packets, stats->tx_errors,
+			     stats->tx_dropped, 0);
+
+		fprintf(fp, "%sRX: %*s %*s %*s %*s %*s%s", indent,
+			cols[0] - 4, "bytes", cols[1], "packets",
+			cols[2], "errors", cols[3], "dropped",
+			cols[4], "noroute", _SL_);
+		fprintf(fp, "%s", indent);
+		print_num(fp, cols[0], stats->rx_bytes);
+		print_num(fp, cols[1], stats->rx_packets);
+		print_num(fp, cols[2], stats->rx_errors);
+		print_num(fp, cols[3], stats->rx_dropped);
+		print_num(fp, cols[4], stats->rx_noroute);
+		print_nl();
+
+		fprintf(fp, "%sTX: %*s %*s %*s %*s%s", indent,
+			cols[0] - 4, "bytes", cols[1], "packets",
+			cols[2], "errors", cols[3], "dropped", _SL_);
+		fprintf(fp, "%s", indent);
+		print_num(fp, cols[0], stats->tx_bytes);
+		print_num(fp, cols[1], stats->tx_packets);
+		print_num(fp, cols[2], stats->tx_errors);
+		print_num(fp, cols[3], stats->tx_dropped);
+	}
+}
+
 static void print_mpls_stats(FILE *fp, struct rtattr *attr)
 {
 	struct rtattr *mrtb[MPLS_STATS_MAX+1];
@@ -1543,23 +1622,11 @@ static void print_mpls_stats(FILE *fp, struct rtattr *attr)
 		return;
 
 	stats = RTA_DATA(mrtb[MPLS_STATS_LINK]);
-
-	fprintf(fp, "    mpls:\n");
-	fprintf(fp, "        RX: bytes  packets  errors  dropped  noroute\n");
-	fprintf(fp, "        ");
-	print_num(fp, 10, stats->rx_bytes);
-	print_num(fp, 8, stats->rx_packets);
-	print_num(fp, 7, stats->rx_errors);
-	print_num(fp, 8, stats->rx_dropped);
-	print_num(fp, 7, stats->rx_noroute);
-	fprintf(fp, "\n");
-	fprintf(fp, "        TX: bytes  packets  errors  dropped\n");
-	fprintf(fp, "        ");
-	print_num(fp, 10, stats->tx_bytes);
-	print_num(fp, 8, stats->tx_packets);
-	print_num(fp, 7, stats->tx_errors);
-	print_num(fp, 7, stats->tx_dropped);
-	fprintf(fp, "\n");
+	print_string(PRINT_FP, NULL, "    mpls:", NULL);
+	print_nl();
+	print_mpls_link_stats(fp, stats, "        ");
+	print_string(PRINT_FP, NULL, "%s", "\n");
+	fflush(fp);
 }
 
 static void print_af_stats_attr(FILE *fp, int ifindex, struct rtattr *attr)
@@ -1575,8 +1642,12 @@ static void print_af_stats_attr(FILE *fp, int ifindex, struct rtattr *attr)
 			continue;
 
 		if (!if_printed) {
-			fprintf(fp, "%u: %s\n", ifindex,
-				ll_index_to_name(ifindex));
+			print_uint(PRINT_ANY, "ifindex",
+				   "%u:", ifindex);
+			print_color_string(PRINT_ANY, COLOR_IFNAME, 
+					   "ifname", "%s",
+					   ll_index_to_name(ifindex));
+			print_nl();
 			if_printed = true;
 		}
 
@@ -1585,7 +1656,7 @@ static void print_af_stats_attr(FILE *fp, int ifindex, struct rtattr *attr)
 			print_mpls_stats(fp, i);
 			break;
 		default:
-			fprintf(fp, "    unknown af(%d)\n", i->rta_type);
+			fprintf(stderr, "    unknown af(%d)\n", i->rta_type);
 			break;
 		}
 	}
@@ -1659,7 +1730,10 @@ static int iplink_afstats(int argc, char **argv)
 		}
 	}
 
-	if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask) < 0) {
+	new_json_obj(json);
+
+	if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask,
+				      NULL, NULL) < 0) {
 		perror("Cannont send dump request");
 		return 1;
 	}
@@ -1669,6 +1743,7 @@ static int iplink_afstats(int argc, char **argv)
 		return 1;
 	}
 
+	delete_json_obj();
 	return 0;
 }
 

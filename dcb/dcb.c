@@ -72,7 +72,7 @@ static int dcb_get_attribute_attr_ieee_cb(const struct nlattr *attr, void *data)
 
 	ga->payload = mnl_attr_get_payload(attr);
 	ga->payload_len = mnl_attr_get_payload_len(attr);
-	return MNL_CB_STOP;
+	return MNL_CB_OK;
 }
 
 static int dcb_get_attribute_attr_cb(const struct nlattr *attr, void *data)
@@ -126,7 +126,7 @@ static int dcb_set_attribute_attr_cb(const struct nlattr *attr, void *data)
 		return MNL_CB_ERROR;
 	}
 
-	return MNL_CB_STOP;
+	return MNL_CB_OK;
 }
 
 static int dcb_set_attribute_cb(const struct nlmsghdr *nlh, void *data)
@@ -156,7 +156,8 @@ static struct nlmsghdr *dcb_prepare(struct dcb *dcb, const char *dev,
 	};
 	struct nlmsghdr *nlh;
 
-	nlh = mnlu_msg_prepare(dcb->buf, nlmsg_type, NLM_F_REQUEST, &dcbm, sizeof(dcbm));
+	nlh = mnlu_msg_prepare(dcb->buf, nlmsg_type, NLM_F_REQUEST | NLM_F_ACK,
+			       &dcbm, sizeof(dcbm));
 	mnl_attr_put_strz(nlh, DCB_ATTR_IFNAME, dev);
 	return nlh;
 }
@@ -469,7 +470,7 @@ static void dcb_help(void)
 	fprintf(stderr,
 		"Usage: dcb [ OPTIONS ] OBJECT { COMMAND | help }\n"
 		"       dcb [ -f | --force ] { -b | --batch } filename [ -n | --netns ] netnsname\n"
-		"where  OBJECT := { app | buffer | dcbx | ets | maxrate | pfc }\n"
+		"where  OBJECT := { app | apptrust | buffer | dcbx | ets | maxrate | pfc }\n"
 		"       OPTIONS := [ -V | --Version | -i | --iec | -j | --json\n"
 		"                  | -N | --Numeric | -p | --pretty\n"
 		"                  | -s | --statistics | -v | --verbose]\n");
@@ -482,6 +483,8 @@ static int dcb_cmd(struct dcb *dcb, int argc, char **argv)
 		return 0;
 	} else if (matches(*argv, "app") == 0) {
 		return dcb_cmd_app(dcb, argc - 1, argv + 1);
+	} else if (strcmp(*argv, "apptrust") == 0) {
+		return dcb_cmd_apptrust(dcb, argc - 1, argv + 1);
 	} else if (matches(*argv, "buffer") == 0) {
 		return dcb_cmd_buffer(dcb, argc - 1, argv + 1);
 	} else if (matches(*argv, "dcbx") == 0) {

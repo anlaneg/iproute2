@@ -1,13 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * ipaddress.c		"ip address".
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
- *
  */
 
 #include <stdarg.h>
@@ -546,10 +541,10 @@ static void print_vfinfo(FILE *fp, struct ifinfomsg *ifi, struct rtattr *vfinfo)
 		print_vf_stats64(fp, vf[IFLA_VF_STATS]);
 }
 
-static void size_columns(unsigned int cols[], unsigned int n, ...)
+void size_columns(unsigned int cols[], unsigned int n, ...)
 {
 	unsigned int i, len;
-	uint64_t val, powi;
+	uint64_t val;
 	va_list args;
 
 	va_start(args, n);
@@ -560,7 +555,7 @@ static void size_columns(unsigned int cols[], unsigned int n, ...)
 		if (human_readable)
 			continue;
 
-		for (len = 1, powi = 10; powi < val; len++, powi *= 10)
+		for (len = 1; val > 9; len++, val /= 10)
 			/* nothing */;
 		if (len > cols[i])
 			cols[i] = len;
@@ -680,10 +675,10 @@ static void print_vf_stats64(FILE *fp, struct rtattr *vfstats)
 	}
 }
 
-static void __print_link_stats(FILE *fp, struct rtattr *tb[])
+void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
+		   const struct rtattr *carrier_changes,
+		   const char *what)
 {
-	const struct rtattr *carrier_changes = tb[IFLA_CARRIER_CHANGES];
-	struct rtnl_link_stats64 _s, *s = &_s;
 	unsigned int cols[] = {
 		strlen("*X errors:"),
 		strlen("packets"),
@@ -692,15 +687,12 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 		strlen("heartbt"),
 		strlen("overrun"),
 		strlen("compressed"),
+		strlen("otherhost"),
 	};
-	int ret;
-
-	ret = get_rtnl_link_stats_rta(s, tb);
-	if (ret < 0)
-		return;
 
 	if (is_json_context()) {
-		open_json_object((ret == sizeof(*s)) ? "stats64" : "stats");
+		if (what)
+			open_json_object(what);
 
 		/* RX stats */
 		open_json_object("rx");
@@ -734,6 +726,10 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 			if (s->rx_nohandler)
 				print_u64(PRINT_JSON,
 					   "nohandler", NULL, s->rx_nohandler);
+			if (s->rx_otherhost_dropped)
+				print_u64(PRINT_JSON,
+					   "otherhost", NULL,
+					   s->rx_otherhost_dropped);
 		}
 		close_json_object();
 
@@ -771,28 +767,34 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 		}
 
 		close_json_object();
-		close_json_object();
+		if (what)
+			close_json_object();
 	} else {
+		uint64_t zero64 = 0;
+
 		size_columns(cols, ARRAY_SIZE(cols),
 			     s->rx_bytes, s->rx_packets, s->rx_errors,
 			     s->rx_dropped, s->rx_missed_errors,
-			     s->multicast, s->rx_compressed);
+			     s->multicast, s->rx_compressed, zero64);
 		if (show_stats > 1)
 			size_columns(cols, ARRAY_SIZE(cols), 0,
 				     s->rx_length_errors, s->rx_crc_errors,
 				     s->rx_frame_errors, s->rx_fifo_errors,
-				     s->rx_over_errors, s->rx_nohandler);
+				     s->rx_over_errors, s->rx_nohandler,
+				     s->rx_otherhost_dropped);
 		size_columns(cols, ARRAY_SIZE(cols),
 			     s->tx_bytes, s->tx_packets, s->tx_errors,
 			     s->tx_dropped, s->tx_carrier_errors,
-			     s->collisions, s->tx_compressed);
-		if (show_stats > 1)
+			     s->collisions, s->tx_compressed, zero64);
+		if (show_stats > 1) {
+			uint64_t cc = carrier_changes ?
+				      rta_getattr_u32(carrier_changes) : 0;
+
 			size_columns(cols, ARRAY_SIZE(cols), 0, 0,
 				     s->tx_aborted_errors, s->tx_fifo_errors,
 				     s->tx_window_errors,
-				     s->tx_heartbeat_errors,
-				     carrier_changes ?
-				     rta_getattr_u32(carrier_changes) : 0);
+				     s->tx_heartbeat_errors, cc, zero64);
+		}
 
 		/* RX stats */
 		fprintf(fp, "    RX: %*s %*s %*s %*s %*s %*s %*s%s",
@@ -814,11 +816,14 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 		/* RX error stats */
 		if (show_stats > 1) {
 			fprintf(fp, "%s", _SL_);
-			fprintf(fp, "    RX errors:%*s %*s %*s %*s %*s %*s %*s%s",
+			fprintf(fp, "    RX errors:%*s %*s %*s %*s %*s %*s%*s%*s%s",
 				cols[0] - 10, "", cols[1], "length",
 				cols[2], "crc", cols[3], "frame",
 				cols[4], "fifo", cols[5], "overrun",
-				cols[6], s->rx_nohandler ? "nohandler" : "",
+				s->rx_nohandler ? cols[6] + 1 : 0,
+				s->rx_nohandler ? " nohandler" : "",
+				s->rx_otherhost_dropped ? cols[7] + 1 : 0,
+				s->rx_otherhost_dropped ? " otherhost" : "",
 				_SL_);
 			fprintf(fp, "%*s", cols[0] + 5, "");
 			print_num(fp, cols[1], s->rx_length_errors);
@@ -828,6 +833,8 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 			print_num(fp, cols[5], s->rx_over_errors);
 			if (s->rx_nohandler)
 				print_num(fp, cols[6], s->rx_nohandler);
+			if (s->rx_otherhost_dropped)
+				print_num(fp, cols[7], s->rx_otherhost_dropped);
 		}
 		fprintf(fp, "%s", _SL_);
 
@@ -868,6 +875,20 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 					  rta_getattr_u32(carrier_changes));
 		}
 	}
+}
+
+static void __print_link_stats(FILE *fp, struct rtattr *tb[])
+{
+	const struct rtattr *carrier_changes = tb[IFLA_CARRIER_CHANGES];
+	struct rtnl_link_stats64 _s, *s = &_s;
+	int ret;
+
+	ret = get_rtnl_link_stats_rta(s, tb);
+	if (ret < 0)
+		return;
+
+	print_stats64(fp, s, carrier_changes,
+		      (ret == sizeof(*s)) ? "stats64" : "stats");
 }
 
 static void print_link_stats(FILE *fp, struct nlmsghdr *n)
@@ -1179,6 +1200,12 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 				   " promiscuity %u ",
 				   rta_getattr_u32(tb[IFLA_PROMISCUITY]));
 
+		if (tb[IFLA_ALLMULTI])
+			print_uint(PRINT_ANY,
+				   "allmulti",
+				   " allmulti %u ",
+				   rta_getattr_u32(tb[IFLA_ALLMULTI]));
+
 		if (tb[IFLA_MIN_MTU])
 			print_uint(PRINT_ANY,
 				   "min_mtu", "minmtu %u ",
@@ -1219,11 +1246,35 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 				   "gso_max_segs %u ",
 				   rta_getattr_u32(tb[IFLA_GSO_MAX_SEGS]));
 
+		if (tb[IFLA_TSO_MAX_SIZE])
+				   print_uint(PRINT_ANY,
+				   "tso_max_size",
+				   "tso_max_size %u ",
+				   rta_getattr_u32(tb[IFLA_TSO_MAX_SIZE]));
+
+		if (tb[IFLA_TSO_MAX_SEGS])
+				   print_uint(PRINT_ANY,
+				   "tso_max_segs",
+				   "tso_max_segs %u ",
+				   rta_getattr_u32(tb[IFLA_TSO_MAX_SEGS]));
+
 		if (tb[IFLA_GRO_MAX_SIZE])
 			print_uint(PRINT_ANY,
 				   "gro_max_size",
 				   "gro_max_size %u ",
 				   rta_getattr_u32(tb[IFLA_GRO_MAX_SIZE]));
+
+		if (tb[IFLA_GSO_IPV4_MAX_SIZE])
+			print_uint(PRINT_ANY,
+				   "gso_ipv4_max_size",
+				   "gso_ipv4_max_size %u ",
+				   rta_getattr_u32(tb[IFLA_GSO_IPV4_MAX_SIZE]));
+
+		if (tb[IFLA_GRO_IPV4_MAX_SIZE])
+			print_uint(PRINT_ANY,
+				   "gro_ipv4_max_size",
+				   "gro_ipv4_max_size %u ",
+				   rta_getattr_u32(tb[IFLA_GRO_IPV4_MAX_SIZE]));
 
 		if (tb[IFLA_PHYS_PORT_NAME])
 			print_string(PRINT_ANY,
@@ -1552,7 +1603,7 @@ int print_addrinfo(struct nlmsghdr *n, void *arg)
 	if (!brief) {
 		const char *name;
 
-		if (filter.oneline || filter.flushb) {
+		if (filter.oneline || filter.flushb || echo_request) {
 			const char *dev = ll_index_to_name(ifa->ifa_index);
 
 			if (is_json_context()) {
@@ -2021,8 +2072,10 @@ static int ipaddr_link_get(int index, struct nlmsg_chain *linfo)
 
 	if (store_nlmsg(answer, linfo) < 0) {
 		fprintf(stderr, "Failed to process link information\n");
+		free(answer);
 		return 1;
 	}
+	free(answer);
 
 	return 0;
 }
@@ -2383,6 +2436,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 	__u32 preferred_lft = INFINITY_LIFE_TIME;
 	__u32 valid_lft = INFINITY_LIFE_TIME;
 	unsigned int ifa_flags = 0;
+	int ret;
 
 	while (argc > 0) {
 		if (strcmp(*argv, "peer") == 0 ||
@@ -2581,7 +2635,12 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 		return -1;
 	}
 
-	if (rtnl_talk(&rth, &req.n, NULL) < 0)
+	if (echo_request)
+		ret = rtnl_echo_talk(&rth, &req.n, json, print_addrinfo);
+	else
+		ret = rtnl_talk(&rth, &req.n, NULL);
+
+	if (ret)
 		return -2;
 
 	return 0;

@@ -1,13 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * libnetlink.c	RTnetlink service routines.
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
- *
  */
 
 #include <stdio.h>
@@ -129,13 +124,12 @@ int nl_dump_ext_ack(const struct nlmsghdr *nlh, nl_ext_ack_fn_t errfn)
 	return 0;
 }
 
-int nl_dump_ext_ack_done(const struct nlmsghdr *nlh, int error)
+int nl_dump_ext_ack_done(const struct nlmsghdr *nlh, unsigned int offset, int error)
 {
 	struct nlattr *tb[NLMSGERR_ATTR_MAX + 1] = {};
-	unsigned int hlen = sizeof(int);
 	const char *msg = NULL;
 
-	if (mnl_attr_parse(nlh, hlen, err_attr_cb, tb) != MNL_CB_OK)
+	if (mnl_attr_parse(nlh, offset, err_attr_cb, tb) != MNL_CB_OK)
 		return 0;
 
 	if (tb[NLMSGERR_ATTR_MSG])
@@ -159,7 +153,7 @@ int nl_dump_ext_ack(const struct nlmsghdr *nlh, nl_ext_ack_fn_t errfn)
 	return 0;
 }
 
-int nl_dump_ext_ack_done(const struct nlmsghdr *nlh, int error)
+int nl_dump_ext_ack_done(const struct nlmsghdr *nlh, unsigned int offset, int error)
 {
 	return 0;
 }
@@ -623,12 +617,13 @@ int rtnl_fdb_linkdump_req_filter_fn(struct rtnl_handle *rth,
 	return send(rth->fd, &req, sizeof(req), 0);
 }
 
-int rtnl_statsdump_req_filter(struct rtnl_handle *rth, int fam, __u32 filt_mask)
+int rtnl_statsdump_req_filter(struct rtnl_handle *rth, int fam,
+			      __u32 filt_mask,
+			      int (*filter_fn)(struct ipstats_req *req,
+					       void *data),
+			      void *filter_data)
 {
-	struct {
-		struct nlmsghdr nlh;
-		struct if_stats_msg ifsm;
-	} req;
+	struct ipstats_req req;
 
 	memset(&req, 0, sizeof(req));
 	req.nlh.nlmsg_len = NLMSG_LENGTH(sizeof(struct if_stats_msg));
@@ -638,6 +633,14 @@ int rtnl_statsdump_req_filter(struct rtnl_handle *rth, int fam, __u32 filt_mask)
 	req.nlh.nlmsg_seq = rth->dump = ++rth->seq;
 	req.ifsm.family = fam;
 	req.ifsm.filter_mask = filt_mask;
+
+	if (filter_fn) {
+		int err;
+
+		err = filter_fn(&req, filter_data);
+		if (err)
+			return err;
+	}
 
 	return send(rth->fd, &req, sizeof(req), 0);
 }
@@ -743,7 +746,7 @@ static int rtnl_dump_done(struct nlmsghdr *h,
 			return 0;
 
 		/* check for any messages returned from kernel */
-		if (nl_dump_ext_ack_done(h, len))
+		if (nl_dump_ext_ack_done(h, sizeof(int), len))
 			return len;
 
 		switch (errno) {
@@ -1092,14 +1095,21 @@ next:
 						rtnl_talk_error(h, err, errfn);
 				}
 
+				if (i < iovlen) {
+					free(buf);
+					goto next;
+				}
+
+				if (error) {
+					free(buf);
+					return -i;
+				}
+
 				if (answer)
 					*answer = (struct nlmsghdr *)buf;
 				else
 					free(buf);
-
-				if (i < iovlen)
-					goto next;
-				return error ? -i : 0;
+				return 0;
 			}
 
 			if (answer) {
@@ -1136,6 +1146,28 @@ static int __rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n,
 	};
 
 	return __rtnl_talk_iov(rtnl, &iov/*netlink请求内容*/, 1, answer, show_rtnl_err, errfn);
+}
+
+int rtnl_echo_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, int json,
+		   int (*print_info)(struct nlmsghdr *n, void *arg))
+{
+	struct nlmsghdr *answer;
+	int ret;
+
+	n->nlmsg_flags |= NLM_F_ECHO | NLM_F_ACK;
+
+	ret = rtnl_talk(rtnl, n, &answer);
+	if (ret)
+		return ret;
+
+	new_json_obj(json);
+	open_json_object(NULL);
+	print_info(answer, stdout);
+	close_json_object();
+	delete_json_obj();
+	free(answer);
+
+	return 0;
 }
 
 //执行netlink请求
@@ -1616,4 +1648,24 @@ void nl_print_policy(const struct rtattr *attr, FILE *fp)
 					rta_getattr_u32(tp[NL_POLICY_TYPE_ATTR_MAX_LENGTH]));
 		}
 	}
+}
+
+int rtnl_tunneldump_req(struct rtnl_handle *rth, int family, int ifindex,
+			__u8 flags)
+{
+	struct {
+		struct nlmsghdr nlh;
+		struct tunnel_msg tmsg;
+		char buf[256];
+	} req = {
+		.nlh.nlmsg_len = NLMSG_LENGTH(sizeof(struct tunnel_msg)),
+		.nlh.nlmsg_type = RTM_GETTUNNEL,
+		.nlh.nlmsg_flags = NLM_F_DUMP | NLM_F_REQUEST,
+		.nlh.nlmsg_seq = rth->dump = ++rth->seq,
+		.tmsg.family = family,
+		.tmsg.flags = flags,
+		.tmsg.ifindex = ifindex,
+	};
+
+	return send(rth->fd, &req, sizeof(req), 0);
 }

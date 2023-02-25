@@ -37,6 +37,7 @@ static void usage(void)
 		"                                                     [ self ] [ master ]\n"
 		"       bridge vlan { set } vid VLAN_ID dev DEV [ state STP_STATE ]\n"
 		"                                               [ mcast_router MULTICAST_ROUTER ]\n"
+		"                                               [ mcast_max_groups MAX_GROUPS ]\n"
 		"       bridge vlan { show } [ dev DEV ] [ vid VLAN_ID ]\n"
 		"       bridge vlan { tunnelshow } [ dev DEV ] [ vid VLAN_ID ]\n"
 		"       bridge vlan global { set } vid VLAN_ID dev DEV\n"
@@ -344,6 +345,15 @@ static int vlan_option_set(int argc, char **argv)
 			addattr8(&req.n, sizeof(req),
 				 BRIDGE_VLANDB_ENTRY_MCAST_ROUTER,
 				 mcast_router);
+		} else if (strcmp(*argv, "mcast_max_groups") == 0) {
+			__u32 max_groups;
+
+			NEXT_ARG();
+			if (get_u32(&max_groups, *argv, 0))
+				invarg("invalid mcast_max_groups", *argv);
+			addattr32(&req.n, sizeof(req),
+				  BRIDGE_VLANDB_ENTRY_MCAST_MAX_GROUPS,
+				  max_groups);
 		} else {
 			if (matches(*argv, "help") == 0)
 				NEXT_ARG();
@@ -1021,6 +1031,16 @@ static void print_vlan_opts(struct rtattr *a, int ifindex)
 		print_uint(PRINT_ANY, "mcast_router", "mcast_router %u ",
 			   rta_getattr_u8(vattr));
 	}
+	if (vtb[BRIDGE_VLANDB_ENTRY_MCAST_N_GROUPS]) {
+		vattr = vtb[BRIDGE_VLANDB_ENTRY_MCAST_N_GROUPS];
+		print_uint(PRINT_ANY, "mcast_n_groups", "mcast_n_groups %u ",
+			   rta_getattr_u32(vattr));
+	}
+	if (vtb[BRIDGE_VLANDB_ENTRY_MCAST_MAX_GROUPS]) {
+		vattr = vtb[BRIDGE_VLANDB_ENTRY_MCAST_MAX_GROUPS];
+		print_uint(PRINT_ANY, "mcast_max_groups", "mcast_max_groups %u ",
+			   rta_getattr_u32(vattr));
+	}
 	print_nl();
 	if (show_stats)
 		__print_one_vlan_stats(&vstats);
@@ -1032,6 +1052,7 @@ int print_vlan_rtm(struct nlmsghdr *n, void *arg, bool monitor, bool global_only
 	struct br_vlan_msg *bvm = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
 	struct rtattr *a;
+	FILE *fp = arg;
 	int rem;
 
 	if (n->nlmsg_type != RTM_NEWVLAN && n->nlmsg_type != RTM_DELVLAN &&
@@ -1052,6 +1073,8 @@ int print_vlan_rtm(struct nlmsghdr *n, void *arg, bool monitor, bool global_only
 
 	if (filter_index && filter_index != bvm->ifindex)
 		return 0;
+
+	print_headers(fp, "[VLAN]");
 
 	if (n->nlmsg_type == RTM_DELVLAN)
 		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
@@ -1179,7 +1202,8 @@ static int vlan_show(int argc, char **argv, int subject)
 		__u32 filt_mask;
 
 		filt_mask = IFLA_STATS_FILTER_BIT(IFLA_STATS_LINK_XSTATS);
-		if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask) < 0) {
+		if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask,
+					      NULL, NULL) < 0) {
 			perror("Cannot send dump request");
 			exit(1);
 		}
@@ -1194,7 +1218,8 @@ static int vlan_show(int argc, char **argv, int subject)
 		}
 
 		filt_mask = IFLA_STATS_FILTER_BIT(IFLA_STATS_LINK_XSTATS_SLAVE);
-		if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask) < 0) {
+		if (rtnl_statsdump_req_filter(&rth, AF_UNSPEC, filt_mask,
+					      NULL, NULL) < 0) {
 			perror("Cannot send slave dump request");
 			exit(1);
 		}
@@ -1331,6 +1356,7 @@ static int vlan_global(int argc, char **argv)
 int do_vlan(int argc, char **argv)
 {
 	ll_init_map(&rth);
+	timestamp = 0;
 
 	if (argc > 0) {
 		if (matches(*argv, "add") == 0)

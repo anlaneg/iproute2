@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * iplink_bond.c	Bonding device support
- *
- *              This program is free software; you can redistribute it and/or
- *              modify it under the terms of the GNU General Public License
- *              as published by the Free Software Foundation; either version
- *              2 of the License, or (at your option) any later version.
  *
  * Authors:     Jiri Pirko <jiri@resnulli.us>
  *              Scott Feldman <sfeldma@cumulusnetworks.com>
@@ -15,6 +11,7 @@
 #include <string.h>
 #include <linux/if_bonding.h>
 
+#include "list.h"
 #include "rt_names.h"
 #include "utils.h"
 #include "ip_common.h"
@@ -773,7 +770,7 @@ static void bond_print_xstats_help(struct link_util *lu, FILE *f)
 	fprintf(f, "Usage: ... %s [ 802.3ad ] [ dev DEVICE ]\n", lu->id);
 }
 
-static void bond_print_3ad_stats(struct rtattr *lacpattr)
+static void bond_print_3ad_stats(const struct rtattr *lacpattr)
 {
 	struct rtattr *lacptb[BOND_3AD_STAT_MAX+1];
 	__u64 val;
@@ -924,7 +921,6 @@ int bond_parse_xstats(struct link_util *lu, int argc, char **argv)
 	return 0;
 }
 
-
 struct link_util bond_link_util = {
 	.id		= "bond",
 	.maxattr	= IFLA_BOND_MAX,
@@ -933,4 +929,48 @@ struct link_util bond_link_util = {
 	.print_help	= bond_print_help,
 	.parse_ifla_xstats = bond_parse_xstats,
 	.print_ifla_xstats = bond_print_xstats,
+};
+
+static const struct ipstats_stat_desc_xstats
+ipstats_stat_desc_xstats_bond_lacp = {
+	.desc = IPSTATS_STAT_DESC_XSTATS_LEAF("802.3ad"),
+	.xstats_at = IFLA_STATS_LINK_XSTATS,
+	.link_type_at = LINK_XSTATS_TYPE_BOND,
+	.inner_max = BOND_XSTATS_MAX,
+	.inner_at = BOND_XSTATS_3AD,
+	.show_cb = &bond_print_3ad_stats,
+};
+
+static const struct ipstats_stat_desc *
+ipstats_stat_desc_xstats_bond_subs[] = {
+	&ipstats_stat_desc_xstats_bond_lacp.desc,
+};
+
+const struct ipstats_stat_desc ipstats_stat_desc_xstats_bond_group = {
+	.name = "bond",
+	.kind = IPSTATS_STAT_DESC_KIND_GROUP,
+	.subs = ipstats_stat_desc_xstats_bond_subs,
+	.nsubs = ARRAY_SIZE(ipstats_stat_desc_xstats_bond_subs),
+};
+
+static const struct ipstats_stat_desc_xstats
+ipstats_stat_desc_xstats_slave_bond_lacp = {
+	.desc = IPSTATS_STAT_DESC_XSTATS_LEAF("802.3ad"),
+	.xstats_at = IFLA_STATS_LINK_XSTATS_SLAVE,
+	.link_type_at = LINK_XSTATS_TYPE_BOND,
+	.inner_max = BOND_XSTATS_MAX,
+	.inner_at = BOND_XSTATS_3AD,
+	.show_cb = &bond_print_3ad_stats,
+};
+
+static const struct ipstats_stat_desc *
+ipstats_stat_desc_xstats_slave_bond_subs[] = {
+	&ipstats_stat_desc_xstats_slave_bond_lacp.desc,
+};
+
+const struct ipstats_stat_desc ipstats_stat_desc_xstats_slave_bond_group = {
+	.name = "bond",
+	.kind = IPSTATS_STAT_DESC_KIND_GROUP,
+	.subs = ipstats_stat_desc_xstats_slave_bond_subs,
+	.nsubs = ARRAY_SIZE(ipstats_stat_desc_xstats_slave_bond_subs),
 };

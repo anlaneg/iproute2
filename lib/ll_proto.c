@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * ll_proto.c
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
  */
@@ -28,10 +25,8 @@
 
 
 #define __PF(f,n) { ETH_P_##f, #n },
-static const struct {
-	int id;
-	const char *name;
-} llproto_names[] = {
+
+static const struct proto llproto_names[] = {
 __PF(LOOP,loop)
 __PF(PUP,pup)
 __PF(PUPAT,pupat)
@@ -90,32 +85,17 @@ __PF(TEB,teb)
 };
 #undef __PF
 
-
-const char * ll_proto_n2a(unsigned short id, char *buf, int len)
+const char *ll_proto_n2a(unsigned short id, char *buf, int len)
 {
-        int i;
+	size_t len_tb = ARRAY_SIZE(llproto_names);
 
-	id = ntohs(id);
-
-        for (i=0; !numeric && i<sizeof(llproto_names)/sizeof(llproto_names[0]); i++) {
-                 if (llproto_names[i].id == id)
-			return llproto_names[i].name;
-	}
-        snprintf(buf, len, "[%d]", id);
-        return buf;
+	return proto_n2a(id, buf, len, llproto_names, len_tb);
 }
 
 //实现协议名称与协议号的查找
 int ll_proto_a2n(unsigned short *id, const char *buf)
 {
-        int i;
-        for (i=0; i < sizeof(llproto_names)/sizeof(llproto_names[0]); i++) {
-                 if (strcasecmp(llproto_names[i].name, buf) == 0) {
-			 *id = htons(llproto_names[i].id);
-			 return 0;
-		 }
-	}
-	if (get_be16(id, buf, 0))
-		return -1;
-	return 0;
+	size_t len_tb = ARRAY_SIZE(llproto_names);
+
+	return proto_a2n(id, buf, llproto_names, len_tb);
 }

@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * q_u32.c		U32 filter.
- *
- *		This program is free software; you can u32istribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
  *		Match mark added by Catalin(ux aka Dino) BOIE <catab at umbrella.ro> [5 nov 2004]
@@ -1288,12 +1284,14 @@ static int u32_print_opt(struct filter_util *qu, FILE *f, struct rtattr *opt,
 		fprintf(stderr, "divisor and hash missing ");
 	}
 	if (tb[TCA_U32_CLASSID]) {
+		__u32 classid = rta_getattr_u32(tb[TCA_U32_CLASSID]);
 		SPRINT_BUF(b1);
-		fprintf(f, "%sflowid %s ",
-			!sel || !(sel->flags & TC_U32_TERMINAL) ? "*" : "",
-			sprint_tc_classid(rta_getattr_u32(tb[TCA_U32_CLASSID]),
-					  b1));
-	} else if (sel && sel->flags & TC_U32_TERMINAL) {
+		if (sel && (sel->flags & TC_U32_TERMINAL))
+			print_string(PRINT_FP, NULL, "*", NULL);
+
+		print_string(PRINT_ANY, "flowid", "flowid %s ",
+			     sprint_tc_classid(classid, b1));
+	} else if (sel && (sel->flags & TC_U32_TERMINAL)) {
 		print_string(PRINT_FP, NULL, "terminal flowid ", NULL);
 	}
 	if (tb[TCA_U32_LINK]) {

@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * f_flower.c		Flower Classifier
- *
- *		This program is free software; you can distribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  *
  * Authors:     Jiri Pirko <jiri@resnulli.us>
  */
@@ -20,10 +16,15 @@
 #include <linux/ip.h>
 #include <linux/tc_act/tc_vlan.h>
 #include <linux/mpls.h>
+#include <linux/ppp_defs.h>
 
 #include "utils.h"
 #include "tc_util.h"
 #include "rt_names.h"
+
+#ifndef IPPROTO_L2TP
+#define IPPROTO_L2TP 115
+#endif
 
 enum flower_matching_flags {
 	FLOWER_IP_FLAGS,
@@ -48,15 +49,18 @@ static void explain(void)
 		"\n"
 		"Where: MATCH-LIST := [ MATCH-LIST ] MATCH\n"
 		"       MATCH      := {	indev DEV-NAME |\n"
+		"			num_of_vlans VLANS_COUNT |\n"
 		"			vlan_id VID |\n"
 		"			vlan_prio PRIORITY |\n"
 		"			vlan_ethtype [ ipv4 | ipv6 | ETH-TYPE ] |\n"
 		"			cvlan_id VID |\n"
 		"			cvlan_prio PRIORITY |\n"
 		"			cvlan_ethtype [ ipv4 | ipv6 | ETH-TYPE ] |\n"
+		"			pppoe_sid PSID |\n"
+		"			ppp_proto [ ipv4 | ipv6 | mpls_uc | mpls_mc | PPP_PROTO ]"
 		"			dst_mac MASKED-LLADDR |\n"
 		"			src_mac MASKED-LLADDR |\n"
-		"			ip_proto [tcp | udp | sctp | icmp | icmpv6 | IP-PROTO ] |\n"
+		"			ip_proto [tcp | udp | sctp | icmp | icmpv6 | l2tp | IP-PROTO ] |\n"
 		"			ip_tos MASKED-IP_TOS |\n"
 		"			ip_ttl MASKED-IP_TTL |\n"
 		"			mpls LSE-LIST |\n"
@@ -64,6 +68,7 @@ static void explain(void)
 		"			mpls_tc TC |\n"
 		"			mpls_bos BOS |\n"
 		"			mpls_ttl TTL |\n"
+		"			l2tpv3_sid LSID |\n"
 		"			dst_ip PREFIX |\n"
 		"			src_ip PREFIX |\n"
 		"			dst_port PORT-NUMBER |\n"
@@ -164,21 +169,23 @@ err:
 	return err;
 }
 
-static bool eth_type_vlan(__be16 ethertype)
+static bool eth_type_vlan(__be16 ethertype, bool good_num_of_vlans)
 {
 	return ethertype == htons(ETH_P_8021Q) ||
-	       ethertype == htons(ETH_P_8021AD);
+	       ethertype == htons(ETH_P_8021AD) ||
+	       good_num_of_vlans;
 }
 
 static int flower_parse_vlan_eth_type(char *str, __be16 eth_type, int type,
 				      __be16 *p_vlan_eth_type,
-				      struct nlmsghdr *n)
+				      struct nlmsghdr *n, bool good_num_of_vlans)
 {
 	__be16 vlan_eth_type;
 
-	if (!eth_type_vlan(eth_type)) {
-		fprintf(stderr, "Can't set \"%s\" if ethertype isn't 802.1Q or 802.1AD\n",
-			type == TCA_FLOWER_KEY_VLAN_ETH_TYPE ? "vlan_ethtype" : "cvlan_ethtype");
+	if (!eth_type_vlan(eth_type, good_num_of_vlans)) {
+		fprintf(stderr, "Can't set \"%s\" if ethertype isn't 802.1Q or 802.1AD and num_of_vlans %s\n",
+			type == TCA_FLOWER_KEY_VLAN_ETH_TYPE ? "vlan_ethtype" : "cvlan_ethtype",
+			type == TCA_FLOWER_KEY_VLAN_ETH_TYPE ? "is 0" : "less than 2");
 		return -1;
 	}
 
@@ -430,6 +437,11 @@ static int flower_parse_ip_proto(char *str, __be16 eth_type/*帧类型*/, int ty
 		if (eth_type != htons(ETH_P_IPV6))
 			goto err;
 		ip_proto = IPPROTO_ICMPV6;
+	} else if (!strcmp(str, "l2tp")) {
+		if (eth_type != htons(ETH_P_IP) &&
+		    eth_type != htons(ETH_P_IPV6))
+			goto err;
+		ip_proto = IPPROTO_L2TP;
 	} else {
 		//采用数字指明的protocol
 		ret = get_u8(&ip_proto, str, 16);
@@ -657,6 +669,27 @@ static int flower_parse_icmp(char *str, __u16 eth_type, __u8 ip_proto,
 		return -1;
 
 	return flower_parse_u8(str, value_type, mask_type, NULL, NULL, n);
+}
+
+static int flower_parse_l2tpv3(char *str, __u8 ip_proto,
+			       struct nlmsghdr *n)
+{
+	__be32 sid;
+	int ret;
+
+	if (ip_proto != IPPROTO_L2TP) {
+		fprintf(stderr,
+			"Can't set \"l2tpv3_sid\" if ip_proto isn't l2tp\n");
+		return -1;
+	}
+	ret = get_be32(&sid, str, 10);
+	if (ret < 0) {
+		fprintf(stderr, "Illegal \"l2tpv3 session id\"\n");
+		return -1;
+	}
+	addattr32(n, MAX_MSG, TCA_FLOWER_KEY_L2TPV3_SID, sid);
+
+	return 0;
 }
 
 static int flower_port_attr_type(__u8 ip_proto, enum flower_endpoint endpoint)
@@ -1454,6 +1487,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 	__be16 tc_proto = TC_H_MIN(t->tcm_info);
 	__be16 eth_type = tc_proto;
 	__be16 vlan_ethtype = 0;
+	__u8 num_of_vlans = 0;
 	__u8 ip_proto = 0xff;
 	__u32 flags = 0;/*规则flag*/
 	__u32 mtf = 0;
@@ -1481,17 +1515,17 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 	    /*设置flower规则对应的classid*/
 		if (matches(*argv, "classid") == 0 ||
 		    matches(*argv, "flowid") == 0) {
-			unsigned int handle;
+			unsigned int classid;
 
 			NEXT_ARG();
-			ret = get_tc_classid(&handle, *argv);
+			ret = get_tc_classid(&classid, *argv);
 			if (ret) {
 				fprintf(stderr, "Illegal \"classid\"\n");
 				return -1;
 			}
-			addattr_l(n, MAX_MSG, TCA_FLOWER_CLASSID, &handle, 4);
+			addattr_l(n, MAX_MSG, TCA_FLOWER_CLASSID, &classid, 4);
 		} else if (matches(*argv, "hw_tc") == 0) {
-			unsigned int handle;
+			unsigned int classid;
 			__u32 tc;
 			char *end;
 
@@ -1505,10 +1539,10 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				fprintf(stderr, "TC index exceeds max range\n");
 				return -1;
 			}
-			handle = TC_H_MAKE(TC_H_MAJ(t->tcm_parent),
+			classid = TC_H_MAKE(TC_H_MAJ(t->tcm_parent),
 					   TC_H_MIN(tc + TC_H_MIN_PRIORITY));
-			addattr_l(n, MAX_MSG, TCA_FLOWER_CLASSID, &handle,
-				  sizeof(handle));
+			addattr_l(n, MAX_MSG, TCA_FLOWER_CLASSID, &classid,
+				  sizeof(classid));
 		} else if (matches(*argv, "ip_flags") == 0) {
 			NEXT_ARG();
 			ret = flower_parse_matching_flags(*argv,
@@ -1562,12 +1596,22 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			if (check_ifname(*argv))
 				invarg("\"indev\" not a valid ifname", *argv);
 			addattrstrz(n, MAX_MSG, TCA_FLOWER_INDEV, *argv);
+		} else if (strcmp(*argv, "num_of_vlans") == 0) {
+			NEXT_ARG();
+			ret = get_u8(&num_of_vlans, *argv, 10);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"num_of_vlans\"\n");
+				return -1;
+			}
+			addattr8(n, MAX_MSG,
+				 TCA_FLOWER_KEY_NUM_OF_VLANS, num_of_vlans);
 		} else if (matches(*argv, "vlan_id") == 0) {
 			__u16 vid;
 
 			NEXT_ARG();
-			if (!eth_type_vlan(tc_proto)) {
-				fprintf(stderr, "Can't set \"vlan_id\" if ethertype isn't 802.1Q or 802.1AD\n");
+			if (!eth_type_vlan(tc_proto, num_of_vlans > 0)) {
+				fprintf(stderr, "Can't set \"vlan_id\" if ethertype isn't 802.1Q or 802.1AD"
+						" and num_of_vlans is 0\n");
 				return -1;
 			}
 			ret = get_u16(&vid, *argv, 10);
@@ -1580,8 +1624,9 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			__u8 vlan_prio;
 
 			NEXT_ARG();
-			if (!eth_type_vlan(tc_proto)) {
-				fprintf(stderr, "Can't set \"vlan_prio\" if ethertype isn't 802.1Q or 802.1AD\n");
+			if (!eth_type_vlan(tc_proto, num_of_vlans > 0)) {
+				fprintf(stderr, "Can't set \"vlan_prio\" if ethertype isn't 802.1Q or 802.1AD"
+						" and num_of_vlans is 0\n");
 				return -1;
 			}
 			ret = get_u8(&vlan_prio, *argv, 10);
@@ -1595,7 +1640,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			NEXT_ARG();
 			ret = flower_parse_vlan_eth_type(*argv, eth_type,
 						 TCA_FLOWER_KEY_VLAN_ETH_TYPE,
-						 &vlan_ethtype, n);
+						 &vlan_ethtype, n, num_of_vlans > 0);
 			if (ret < 0)
 				return -1;
 			/* get new ethtype for later parsing  */
@@ -1604,8 +1649,9 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			__u16 vid;
 
 			NEXT_ARG();
-			if (!eth_type_vlan(vlan_ethtype)) {
-				fprintf(stderr, "Can't set \"cvlan_id\" if inner vlan ethertype isn't 802.1Q or 802.1AD\n");
+			if (!eth_type_vlan(vlan_ethtype, num_of_vlans > 1)) {
+				fprintf(stderr, "Can't set \"cvlan_id\" if inner vlan ethertype isn't 802.1Q or 802.1AD"
+						" and num_of_vlans is less than 2\n");
 				return -1;
 			}
 			ret = get_u16(&vid, *argv, 10);
@@ -1618,8 +1664,9 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			__u8 cvlan_prio;
 
 			NEXT_ARG();
-			if (!eth_type_vlan(vlan_ethtype)) {
-				fprintf(stderr, "Can't set \"cvlan_prio\" if inner vlan ethertype isn't 802.1Q or 802.1AD\n");
+			if (!eth_type_vlan(vlan_ethtype, num_of_vlans > 1)) {
+				fprintf(stderr, "Can't set \"cvlan_prio\" if inner vlan ethertype isn't 802.1Q or 802.1AD"
+						" and num_of_vlans is less than 2\n");
 				return -1;
 			}
 			ret = get_u8(&cvlan_prio, *argv, 10);
@@ -1634,7 +1681,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			/* get new ethtype for later parsing */
 			ret = flower_parse_vlan_eth_type(*argv, vlan_ethtype,
 						 TCA_FLOWER_KEY_CVLAN_ETH_TYPE,
-						 &eth_type, n);
+						 &eth_type, n, num_of_vlans > 1);
 			if (ret < 0)
 				return -1;
 		} else if (matches(*argv, "mpls") == 0) {
@@ -1863,6 +1910,11 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				fprintf(stderr, "Illegal \"icmp code\"\n");
 				return -1;
 			}
+		} else if (!strcmp(*argv, "l2tpv3_sid")) {
+			NEXT_ARG();
+			ret = flower_parse_l2tpv3(*argv, ip_proto, n);
+			if (ret < 0)
+				return -1;
 		} else if (matches(*argv, "arp_tip") == 0) {
 			NEXT_ARG();
 			ret = flower_parse_arp_ip_addr(*argv, eth_type,
@@ -1913,6 +1965,43 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				fprintf(stderr, "Illegal \"arp_sha\"\n");
 				return -1;
 			}
+
+		} else if (!strcmp(*argv, "pppoe_sid")) {
+			__be16 sid;
+
+			NEXT_ARG();
+			if (eth_type != htons(ETH_P_PPP_SES)) {
+				fprintf(stderr,
+					"Can't set \"pppoe_sid\" if ethertype isn't PPPoE session\n");
+				return -1;
+			}
+			ret = get_be16(&sid, *argv, 10);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"pppoe_sid\"\n");
+				return -1;
+			}
+			addattr16(n, MAX_MSG, TCA_FLOWER_KEY_PPPOE_SID, sid);
+		} else if (!strcmp(*argv, "ppp_proto")) {
+			__be16 proto;
+
+			NEXT_ARG();
+			if (eth_type != htons(ETH_P_PPP_SES)) {
+				fprintf(stderr,
+					"Can't set \"ppp_proto\" if ethertype isn't PPPoE session\n");
+				return -1;
+			}
+			if (ppp_proto_a2n(&proto, *argv))
+				invarg("invalid ppp_proto", *argv);
+			/* get new ethtype for later parsing  */
+			if (proto == htons(PPP_IP))
+				eth_type = htons(ETH_P_IP);
+			else if (proto == htons(PPP_IPV6))
+				eth_type = htons(ETH_P_IPV6);
+			else if (proto == htons(PPP_MPLS_UC))
+				eth_type = htons(ETH_P_MPLS_UC);
+			else if (proto == htons(PPP_MPLS_MC))
+				eth_type = htons(ETH_P_MPLS_MC);
+			addattr16(n, MAX_MSG, TCA_FLOWER_KEY_PPP_PROTO, proto);
 		} else if (matches(*argv, "enc_dst_ip") == 0) {
 			NEXT_ARG();
 			ret = flower_parse_ip_addr(*argv, 0,
@@ -2142,6 +2231,8 @@ static void flower_print_ip_proto(__u8 *p_ip_proto,
 		sprintf(out, "icmp");
 	else if (ip_proto == IPPROTO_ICMPV6)
 		sprintf(out, "icmpv6");
+	else if (ip_proto == IPPROTO_L2TP)
+		sprintf(out, "l2tp");
 	else
 		sprintf(out, "%02x", ip_proto);
 
@@ -2742,6 +2833,14 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 
 	open_json_object("keys");
 
+	if (tb[TCA_FLOWER_KEY_NUM_OF_VLANS]) {
+		struct rtattr *attr = tb[TCA_FLOWER_KEY_NUM_OF_VLANS];
+
+		print_nl();
+		print_uint(PRINT_ANY, "num_of_vlans", "  num_of_vlans %d",
+			   rta_getattr_u8(attr));
+	}
+
 	if (tb[TCA_FLOWER_KEY_VLAN_ID]) {
 		struct rtattr *attr = tb[TCA_FLOWER_KEY_VLAN_ID];
 
@@ -2868,6 +2967,14 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		flower_print_masked_u8("icmp_code", tb[nl_type],
 				       tb[nl_mask_type], NULL);
 
+	if (tb[TCA_FLOWER_KEY_L2TPV3_SID]) {
+		struct rtattr *attr = tb[TCA_FLOWER_KEY_L2TPV3_SID];
+
+		print_nl();
+		print_uint(PRINT_ANY, "l2tpv3_sid", "  l2tpv3_sid %u",
+			   rta_getattr_be32(attr));
+	}
+
 	flower_print_ip4_addr("arp_sip", tb[TCA_FLOWER_KEY_ARP_SIP],
 			     tb[TCA_FLOWER_KEY_ARP_SIP_MASK]);
 	flower_print_ip4_addr("arp_tip", tb[TCA_FLOWER_KEY_ARP_TIP],
@@ -2878,6 +2985,24 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 			      tb[TCA_FLOWER_KEY_ARP_SHA_MASK]);
 	flower_print_eth_addr("arp_tha", tb[TCA_FLOWER_KEY_ARP_THA],
 			      tb[TCA_FLOWER_KEY_ARP_THA_MASK]);
+
+	if (tb[TCA_FLOWER_KEY_PPPOE_SID]) {
+		struct rtattr *attr = tb[TCA_FLOWER_KEY_PPPOE_SID];
+
+		print_nl();
+		print_uint(PRINT_ANY, "pppoe_sid", "  pppoe_sid %u",
+			   rta_getattr_be16(attr));
+	}
+
+	if (tb[TCA_FLOWER_KEY_PPP_PROTO]) {
+		SPRINT_BUF(buf);
+		struct rtattr *attr = tb[TCA_FLOWER_KEY_PPP_PROTO];
+
+		print_nl();
+		print_string(PRINT_ANY, "ppp_proto", "  ppp_proto %s",
+			     ppp_proto_n2a(rta_getattr_u16(attr),
+			     buf, sizeof(buf)));
+	}
 
 	flower_print_ip_addr("enc_dst_ip",
 			     tb[TCA_FLOWER_KEY_ENC_IPV4_DST_MASK] ?

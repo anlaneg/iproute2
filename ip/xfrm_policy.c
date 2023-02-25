@@ -1,25 +1,9 @@
-/* $USAGI: $ */
-
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (C)2004 USAGI/WIDE Project
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses>.
- */
-/*
  * based on iproute.c
- */
-/*
+ *
  * Authors:
  *	Masahide NAKAMURA @USAGI
  */
@@ -57,6 +41,7 @@ static void usage(void)
 		"	[ mark MARK [ mask MASK ] ] [ index INDEX ] [ ptype PTYPE ]\n"
 		"	[ action ACTION ] [ priority PRIORITY ] [ flag FLAG-LIST ]\n"
 		"	[ if_id IF_ID ] [ LIMIT-LIST ] [ TMPL-LIST ]\n"
+		"	[ offload packet dev DEV] } ]\n"
 		"Usage: ip xfrm policy { delete | get } { SELECTOR | index INDEX } dir DIR\n"
 		"	[ ctx CTX ] [ mark MARK [ mask MASK ] ] [ ptype PTYPE ]\n"
 		"	[ if_id IF_ID ]\n"
@@ -260,6 +245,7 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 	char *ptypep = NULL;
 	char *sctxp = NULL;
 	struct xfrm_userpolicy_type upt = {};
+	struct xfrm_user_offload xuo = {};
 	char tmpls_buf[XFRM_TMPLS_BUF_SIZE] = {};
 	int tmpls_len = 0;
 	struct xfrm_mark mark = {0, 0};
@@ -268,6 +254,8 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 		char	str[CTX_BUF_SIZE];
 	} ctx = {};
 	bool is_if_id_set = false;
+	unsigned int ifindex = 0;
+	bool is_offload = false;
 	__u32 if_id = 0;
 
 	while (argc > 0) {
@@ -342,6 +330,21 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 			if (get_u32(&if_id, *argv, 0))
 				invarg("IF_ID value is invalid", *argv);
 			is_if_id_set = true;
+		} else if (strcmp(*argv, "offload") == 0) {
+			NEXT_ARG();
+			if (strcmp(*argv, "packet") == 0)
+				NEXT_ARG();
+			else
+				invarg("Invalid offload mode", *argv);
+
+			if (strcmp(*argv, "dev") == 0) {
+				NEXT_ARG();
+				ifindex = ll_name_to_index(*argv);
+				if (!ifindex)
+					invarg("Invalid device name", *argv);
+			} else
+				invarg("Missing dev keyword", *argv);
+			is_offload = true;
 		} else {
 			if (selp)
 				duparg("unknown", *argv);
@@ -386,6 +389,13 @@ static int xfrm_policy_modify(int cmd, unsigned int flags, int argc, char **argv
 
 	if (is_if_id_set)
 		addattr32(&req.n, sizeof(req.buf), XFRMA_IF_ID, if_id);
+
+	if (is_offload) {
+		xuo.ifindex = ifindex;
+		xuo.flags |= XFRM_OFFLOAD_PACKET;
+		addattr_l(&req.n, sizeof(req.buf), XFRMA_OFFLOAD_DEV, &xuo,
+			  sizeof(xuo));
+	}
 
 	if (rtnl_open_byproto(&rth, 0, NETLINK_XFRM) < 0)
 		exit(1);

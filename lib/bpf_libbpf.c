@@ -151,7 +151,8 @@ handle_legacy_map_in_map(struct bpf_object *obj, struct bpf_map *inner_map,
 	return ret;
 }
 
-static int find_legacy_tail_calls(struct bpf_program *prog, struct bpf_object *obj)
+static int find_legacy_tail_calls(struct bpf_program *prog, struct bpf_object *obj,
+				  struct bpf_map **pmap)
 {
 	unsigned int map_id, key_id;
 	const char *sec_name;
@@ -175,8 +176,8 @@ static int find_legacy_tail_calls(struct bpf_program *prog, struct bpf_object *o
 	if (!map)
 		return -1;
 
-	/* Save the map here for later updating */
-	bpf_program__set_priv(prog, map, NULL);
+	if (pmap)
+		*pmap = map;
 
 	return 0;
 }
@@ -190,8 +191,10 @@ static int update_legacy_tail_call_maps(struct bpf_object *obj)
 	struct bpf_map *map;
 
 	bpf_object__for_each_program(prog, obj) {
-		map = bpf_program__priv(prog);
-		if (!map)
+		/* load_bpf_object has already verified find_legacy_tail_calls
+		 * succeeds when it should
+		 */
+		if (find_legacy_tail_calls(prog, obj, &map) < 0)
 			continue;
 
 		prog_fd = bpf_program__fd(prog);
@@ -246,9 +249,29 @@ static int handle_legacy_maps(struct bpf_object *obj)
 	return ret;
 }
 
+static bool bpf_map_is_offload_neutral(const struct bpf_map *map)
+{
+	return bpf_map__type(map) == BPF_MAP_TYPE_PERF_EVENT_ARRAY;
+}
+
+static bool find_prog_to_attach(struct bpf_program *prog,
+				struct bpf_program *exist_prog,
+				const char *section, const char *prog_name)
+{
+	if (exist_prog)
+		return false;
+
+	/* We have default section name 'prog'. So do not check
+	 * section name if there already has program name.
+	 */
+	if (prog_name)
+		return !strcmp(bpf_program__name(prog), prog_name);
+	else
+		return !strcmp(get_bpf_program__section_name(prog), section);
+}
+
 static int load_bpf_object(struct bpf_cfg_in *cfg)
 {
-	struct bpf_object_load_attr attr = {};
 	struct bpf_program *p, *prog = NULL;
 	struct bpf_object *obj;
 	char root_path[PATH_MAX];
@@ -271,12 +294,14 @@ static int load_bpf_object(struct bpf_cfg_in *cfg)
 	}
 
 	bpf_object__for_each_program(p, obj) {
-		bool prog_to_attach = !prog && cfg->section &&
-			!strcmp(get_bpf_program__section_name(p), cfg->section);
+		bool prog_to_attach = find_prog_to_attach(p, prog,
+							  cfg->section,
+							  cfg->prog_name);
 
 		/* Only load the programs that will either be subsequently
 		 * attached or inserted into a tail call map */
-		if (find_legacy_tail_calls(p, obj) < 0 && !prog_to_attach) {
+		if (find_legacy_tail_calls(p, obj, NULL) < 0 &&
+		    !prog_to_attach) {
 			ret = bpf_program__set_autoload(p, false);
 			if (ret)
 				return -EINVAL;
@@ -291,12 +316,15 @@ static int load_bpf_object(struct bpf_cfg_in *cfg)
 	}
 
 	bpf_object__for_each_map(map, obj) {
-		if (!bpf_map__is_offload_neutral(map))
+		if (!bpf_map_is_offload_neutral(map))
 			bpf_map__set_ifindex(map, cfg->ifindex);
 	}
 
 	if (!prog) {
-		fprintf(stderr, "object file doesn't contain sec %s\n", cfg->section);
+		if (cfg->prog_name)
+			fprintf(stderr, "object file doesn't contain prog %s\n", cfg->prog_name);
+		else
+			fprintf(stderr, "object file doesn't contain sec %s\n", cfg->section);
 		return -ENOENT;
 	}
 
@@ -305,11 +333,7 @@ static int load_bpf_object(struct bpf_cfg_in *cfg)
 	if (ret)
 		goto unload_obj;
 
-	attr.obj = obj;
-	if (cfg->verbose)
-		attr.log_level = 2;
-
-	ret = bpf_object__load_xattr(&attr);
+	ret = bpf_object__load(obj);
 	if (ret)
 		goto unload_obj;
 

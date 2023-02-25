@@ -13,7 +13,7 @@ bridge \- show / manipulate bridge addresses and devices
 
 .ti -8
 .IR OBJECT " := { "
-.BR link " | " fdb " | " mdb " | " vlan " | " monitor " }"
+.BR link " | " fdb " | " mdb " | " vlan " | " vni " | " monitor " }"
 .sp
 
 .ti -8
@@ -47,6 +47,8 @@ bridge \- show / manipulate bridge addresses and devices
 .BR hwmode " { " vepa " | " veb " } ] [ "
 .BR bcast_flood " { " on " | " off " } ] [ "
 .BR mcast_flood " { " on " | " off " } ] [ "
+.BR mcast_max_groups
+.IR MAX_GROUPS " ] ["
 .BR mcast_router
 .IR MULTICAST_ROUTER " ] ["
 .BR mcast_to_unicast " { " on " | " off " } ] [ "
@@ -54,6 +56,7 @@ bridge \- show / manipulate bridge addresses and devices
 .BR vlan_tunnel " { " on " | " off " } ] [ "
 .BR isolated " { " on " | " off " } ] [ "
 .BR locked " { " on " | " off " } ] [ "
+.BR mab " { " on " | " off " } ] [ "
 .B backup_port
 .IR  DEVICE " ] ["
 .BR nobackup_port " ] [ "
@@ -113,7 +116,20 @@ bridge \- show / manipulate bridge addresses and devices
 .BR self " ] [ " master " ] [ " dynamic " ]"
 
 .ti -8
-.BR "bridge mdb" " { " add " | " del " } "
+.BR "bridge fdb flush"
+.B dev
+.IR DEV " [ "
+.B brport
+.IR DEV " ] [ "
+.B vlan
+.IR VID " ] [ "
+.BR self " ] [ " master " ] [ "
+.BR [no]permanent " | " [no]static " | " [no]dynamic " ] [ "
+.BR [no]added_by_user " ] [ " [no]extern_learn " ] [ "
+.BR [no]sticky " ] [ " [no]offloaded " ]"
+
+.ti -8
+.BR "bridge mdb" " { " add " | " del " | " replace " } "
 .B dev
 .I DEV
 .B port
@@ -124,7 +140,12 @@ bridge \- show / manipulate bridge addresses and devices
 .IR SOURCE " ] [ "
 .BR permanent " | " temp " ] [ "
 .B vid
-.IR VID " ] "
+.IR VID " ] [ "
+.BR filter_mode " { " include " | " exclude " } ] [ "
+.B source_list
+.IR SOURCE_LIST " ] [ "
+.B proto
+.IR PROTO " ]
 
 .ti -8
 .BR "bridge mdb show" " [ "
@@ -150,6 +171,8 @@ bridge \- show / manipulate bridge addresses and devices
 .IR VID " [ "
 .B state
 .IR STP_STATE " ] [ "
+.B mcast_max_groups
+.IR MAX_GROUPS " ] [ "
 .B mcast_router
 .IR MULTICAST_ROUTER " ]"
 
@@ -195,6 +218,25 @@ bridge \- show / manipulate bridge addresses and devices
 .IR DEV " ] [ "
 .B vid
 .IR VID " ]"
+
+.ti -8
+.BR "bridge vlan" " show " [ "
+.B dev
+.IR DEV " ]"
+
+.ti -8
+.BR "bridge vni" " { " add " | " del " } "
+.B dev
+.I DEV
+.B vni
+.IR VNI " [ { "
+.B group | remote "} "
+.IR IPADDR " ] "
+
+.ti -8
+.BR "bridge vni" " show " [ "
+.B dev
+.IR DEV " ]"
 
 .ti -8
 .BR "bridge monitor" " [ " all " | " neigh " | " link " | " mdb " | " vlan " ]"
@@ -302,6 +344,10 @@ the output.
 .TP
 .B vlan
 - VLAN filter list.
+
+.TP
+.B vni
+- VNI filter list.
 
 .SS
 .I COMMAND
@@ -476,6 +522,15 @@ Controls whether multicast traffic for which there is no MDB entry will be
 flooded towards this given port. By default this flag is on.
 
 .TP
+.BI mcast_max_groups " MAX_GROUPS "
+Sets the maximum number of MDB entries that can be registered for a given
+port. Attempts to register more MDB entries at the port than this limit
+allows will be rejected, whether they are done through netlink (e.g. the
+\fBbridge\fR tool), or IGMP or MLD membership reports. Setting a limit to 0
+has the effect of disabling the limit. The default value is 0. See also the
+\fBip link\fR option \fBmcast_hash_max\fR.
+
+.TP
 .BI mcast_router " MULTICAST_ROUTER "
 This flag is almost the same as the per-VLAN flag, see below, except its
 value can only be set in the range 0-2.  The default is
@@ -537,13 +592,32 @@ flag is off.
 
 .TP
 .BR "locked on " or " locked off "
-Controls whether a port will be locked, meaning that hosts behind the
-port will not be able to communicate through the port unless an FDB
-entry with the units MAC address is in the FDB.
-The common use is that hosts are allowed access through authentication
-with the IEEE 802.1X protocol or based on whitelists or like setups.
-By default this flag is off.
+Controls whether a port is locked or not. When locked, non-link-local frames
+received through the port are dropped unless an FDB entry with the MAC source
+address points to the port. The common use case is IEEE 802.1X where hosts can
+authenticate themselves by exchanging EAPOL frames with an authenticator. After
+authentication is complete, the user space control plane can install a matching
+FDB entry to allow traffic from the host to be forwarded by the bridge. When
+learning is enabled on a locked port, the
+.B no_linklocal_learn
+bridge option needs to be on to prevent the bridge from learning from received
+EAPOL frames. By default this flag is off.
 
+.TP
+.BR "mab on " or " mab off "
+Controls whether MAC Authentication Bypass (MAB) is enabled on the port or not.
+MAB can only be enabled on a locked port that has learning enabled. When
+enabled, FDB entries are learned from received traffic and have the "locked"
+FDB flag set. The flag can only be set by the kernel and it indicates that the
+FDB entry cannot be used to authenticate the corresponding host. User space can
+decide to authenticate the host by replacing the FDB entry and clearing the
+"locked" FDB flag. Locked FDB entries can roam to unlocked (authorized) ports
+in which case the "locked" flag is cleared. FDB entries cannot roam to locked
+ports regardless of MAB being enabled or not. Therefore, locked FDB entries are
+only created if an FDB entry with the given {MAC, VID} does not already exist.
+This behavior prevents unauthenticated hosts from disrupting traffic destined
+to already authenticated hosts. Locked FDB entries act like regular dynamic
+entries with respect to forwarding and aging. By default this flag is off.
 
 .TP
 .BI backup_port " DEVICE"
@@ -759,6 +833,76 @@ the bridge to which this address is associated.
 .TP
 .B master
 - the address is associated with master devices fdb. Usually software (default).
+
+.SS bridge fdb flush - flush bridge forwarding table entries.
+
+flush the matching bridge forwarding table entries. Some options below have a negated
+form when "no" is prepended to them (e.g. permanent and nopermanent).
+
+.TP
+.BI dev " DEV"
+the target device for the operation. If the device is a bridge port and "master"
+is set then the operation will be fulfilled by its master device's driver and
+all entries pointing to that port will be deleted.
+
+.TP
+.BI brport " DEV"
+the target bridge port for the operation. If the bridge device is specified then only
+entries pointing to the bridge itself will be deleted. Note that the target device
+specified by this option will override the one specified by dev above.
+
+.TP
+.BI vlan " VID"
+the target VLAN ID for the operation. Match forwarding table entries only with the
+specified VLAN ID.
+
+.TP
+.B self
+the operation is fulfilled directly by the driver for the specified network
+device. If the network device belongs to a master like a bridge, then the
+bridge is bypassed and not notified of this operation. The "bridge fdb flush"
+command can also be used on the bridge device itself. The flag is set by default if
+"master" is not specified.
+
+.TP
+.B master
+if the specified network device is a port that belongs to a master device
+such as a bridge, the operation is fulfilled by the master device's driver.
+
+.TP
+.B [no]permanent
+if specified then only permanent entries will be deleted or respectively if "no"
+is prepended then only non-permanent entries will be deleted.
+
+.TP
+.B [no]static
+if specified then only static entries will be deleted or respectively if "no"
+is prepended then only non-static entries will be deleted.
+
+.TP
+.B [no]dynamic
+if specified then only dynamic entries will be deleted or respectively if "no"
+is prepended then only non-dynamic (static or permanent) entries will be deleted.
+
+.TP
+.B [no]added_by_user
+if specified then only entries with added_by_user flag will be deleted or respectively
+if "no" is prepended then only entries without added_by_user flag will be deleted.
+
+.TP
+.B [no]extern_learn
+if specified then only entries with extern_learn flag will be deleted or respectively
+if "no" is prepended then only entries without extern_learn flag will be deleted.
+
+.TP
+.B [no]sticky
+if specified then only entries with sticky flag will be deleted or respectively
+if "no" is prepended then only entries without sticky flag will be deleted.
+
+.TP
+.B [no]offloaded
+if specified then only entries with offloaded flag will be deleted or respectively
+if "no" is prepended then only entries without offloaded flag will be deleted.
 .sp
 
 .SH bridge mdb - multicast group database management
@@ -767,8 +911,8 @@ the bridge to which this address is associated.
 objects contain known IP or L2 multicast group addresses on a link.
 
 .P
-The corresponding commands display mdb entries, add new entries,
-and delete old ones.
+The corresponding commands display mdb entries, add new entries, replace
+entries and delete old ones.
 
 .SS bridge mdb add - add a new multicast group database entry
 
@@ -805,9 +949,36 @@ forwarding multicast traffic.
 .BI vid " VID"
 the VLAN ID which is known to have members of this multicast group.
 
+.TP
+.BR "filter_mode include " or " filter_mode exclude "
+controls whether the sources in the entry's source list are in INCLUDE or
+EXCLUDE mode. Can only be set for (*, G) entries.
+
+.TP
+.BI source_list " SOURCE_LIST"
+optional list of source IP addresses of senders for this multicast group,
+separated by a ','.  Whether the entry forwards packets from these senders or
+not is determined by the entry's filter mode, which becomes a mandatory
+argument. Can only be set for (*, G) entries.
+
+.TP
+.BI proto " PROTO"
+the routing protocol identifier of this mdb entry. Can be a number or a string
+from the file /etc/iproute2/rt_protos. If the routing protocol is not given,
+then
+.B static
+is assumed.
+
 .in -8
 .SS bridge mdb delete - delete a multicast group database entry
 This command removes an existing mdb entry.
+
+.PP
+The arguments are the same as with
+.BR "bridge mdb add" .
+
+.SS bridge mdb replace - replace a multicast group database entry
+If no matching entry is found, a new one will be created instead.
 
 .PP
 The arguments are the same as with
@@ -950,6 +1121,15 @@ STP BPDUs.
 .sp
 
 .TP
+.BI mcast_max_groups " MAX_GROUPS "
+Sets the maximum number of MDB entries that can be registered for a given
+VLAN on a given port. A VLAN-specific equivalent of the per-port option of
+the same name, see above for details.
+
+Note that this option is only available when \fBip link\fR option
+\fBmcast_vlan_snooping\fR is enabled.
+
+.TP
 .BI mcast_router " MULTICAST_ROUTER "
 configure this vlan and interface's multicast router mode, note that only modes
 0 - 2 are available for bridge devices.
@@ -1083,6 +1263,58 @@ all bridge interfaces.
 .BI vid " VID"
 the VLAN ID only whose global options should be listed. Default is to list
 all vlans.
+
+.SH bridge vni - VNI filter list
+
+.B vni
+objects contain known VNI IDs for a dst metadata vxlan link.
+
+.P
+The corresponding commands display vni filter entries, add new entries,
+and delete old ones.
+
+.SS bridge vni add - add a new vni filter entry
+
+This command creates a new vni filter entry.
+
+.TP
+.BI dev " NAME"
+the interface with which this vni is associated.
+
+.TP
+.BI vni " VNI"
+the VNI ID that identifies the vni.
+
+.TP
+.BI remote " IPADDR"
+specifies the unicast destination IP address to use in outgoing packets
+when the destination link layer address is not known in the VXLAN device
+forwarding database. This parameter cannot be specified with the group.
+
+.TP
+.BI group " IPADDR"
+specifies the multicast IP address to join for this VNI
+
+.SS bridge vni del - delete a new vni filter entry
+
+This command removes an existing vni filter entry.
+
+.PP
+The arguments are the same as with
+.BR "bridge vni add".
+
+.SS bridge vni show - list vni filtering configuration.
+
+This command displays the current vni filter table.
+
+.PP
+With the
+.B -statistics
+option, the command displays per-vni traffic statistics.
+
+.TP
+.BI dev " NAME"
+shows vni filtering table associated with the vxlan device
 
 .SH bridge monitor - state monitoring
 

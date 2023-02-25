@@ -1,13 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * tc_util.c		Misc TC utility functions.
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
- *
  */
 
 #include <stdio.h>
@@ -76,7 +71,7 @@ const char *get_tc_lib(void)
 //解析qdisc的handle(要求major非0，minor为0）
 int get_qdisc_handle(__u32 *h, const char *str)
 {
-	__u32 maj;
+	unsigned long maj;
 	char *p;
 
 	maj = TC_H_UNSPEC;
@@ -101,7 +96,7 @@ ok:
 //        "XXXX:AAAA" => {maj = XXXX,min="AAAA",h=XXXXAAAA}
 int get_tc_classid(__u32 *h, const char *str)
 {
-	__u32 maj, min;
+	unsigned long maj, min;
 	char *p;
 
 	maj = TC_H_ROOT;
@@ -647,7 +642,7 @@ void print_tm(FILE *f, const struct tcf_t *tm)
 			   tm->expires / hz);
 }
 
-static void print_tcstats_basic_hw(struct rtattr **tbs, char *prefix)
+static void print_tcstats_basic_hw(struct rtattr **tbs, const char *prefix)
 {
 	struct gnet_stats_basic bs_hw;
 
@@ -685,7 +680,8 @@ static void print_tcstats_basic_hw(struct rtattr **tbs, char *prefix)
 	print_uint(PRINT_ANY, "hw_packets", " %u pkt", bs_hw.packets);
 }
 
-void print_tcstats2_attr(FILE *fp, struct rtattr *rta, char *prefix, struct rtattr **xstats)
+void print_tcstats2_attr(FILE *fp, struct rtattr *rta,
+			 const char *prefix, struct rtattr **xstats)
 {
 	struct rtattr *tbs[TCA_STATS_MAX + 1];
 
@@ -762,7 +758,7 @@ void print_tcstats2_attr(FILE *fp, struct rtattr *rta, char *prefix, struct rtat
 		*xstats = tbs[TCA_STATS_APP] ? : NULL;
 }
 
-void print_tcstats_attr(FILE *fp, struct rtattr *tb[], char *prefix,
+void print_tcstats_attr(FILE *fp, struct rtattr *tb[], const char *prefix,
 			struct rtattr **xstats)
 {
 	if (tb[TCA_STATS2]) {
@@ -879,4 +875,13 @@ void print_masked_be16(const char *name, struct rtattr *attr,
 {
 	print_masked_type(UINT16_MAX, __rta_getattr_be16_u32, name, attr,
 			  mask_attr, newline);
+}
+
+void print_ext_msg(struct rtattr **tb)
+{
+	if (!tb[TCA_EXT_WARN_MSG])
+		return;
+
+	print_string(PRINT_ANY, "warn", "%s", rta_getattr_str(tb[TCA_EXT_WARN_MSG]));
+	print_nl();
 }

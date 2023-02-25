@@ -184,6 +184,21 @@ static void print_protinfo(FILE *fp, struct rtattr *attr)
 		if (prtb[IFLA_BRPORT_LOCKED])
 			print_on_off(PRINT_ANY, "locked", "locked %s ",
 				     rta_getattr_u8(prtb[IFLA_BRPORT_LOCKED]));
+		if (prtb[IFLA_BRPORT_MAB])
+			print_on_off(PRINT_ANY, "mab", "mab %s ",
+				     rta_getattr_u8(prtb[IFLA_BRPORT_MAB]));
+		if (prtb[IFLA_BRPORT_MCAST_N_GROUPS]) {
+			struct rtattr *at = prtb[IFLA_BRPORT_MCAST_N_GROUPS];
+
+			print_uint(PRINT_ANY, "mcast_n_groups",
+				   "mcast_n_groups %u ", rta_getattr_u32(at));
+		}
+		if (prtb[IFLA_BRPORT_MCAST_MAX_GROUPS]) {
+			struct rtattr *at = prtb[IFLA_BRPORT_MCAST_MAX_GROUPS];
+
+			print_uint(PRINT_ANY, "mcast_max_groups",
+				   "mcast_max_groups %u ", rta_getattr_u32(at));
+		}
 	} else
 		print_stp_state(rta_getattr_u8(attr));
 }
@@ -229,6 +244,8 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 	name = get_ifname_rta(ifi->ifi_index, tb[IFLA_IFNAME]);
 	if (!name)
 		return -1;
+
+	print_headers(fp, "[LINK]");
 
 	open_json_object(NULL);
 	if (n->nlmsg_type == RTM_DELLINK)
@@ -277,10 +294,12 @@ static void usage(void)
 		"                               [ mcast_flood {on | off} ]\n"
 		"                               [ bcast_flood {on | off} ]\n"
 		"                               [ mcast_to_unicast {on | off} ]\n"
+		"                               [ mcast_max_groups MAX_GROUPS ]\n"
 		"                               [ neigh_suppress {on | off} ]\n"
 		"                               [ vlan_tunnel {on | off} ]\n"
 		"                               [ isolated {on | off} ]\n"
 		"                               [ locked {on | off} ]\n"
+		"                               [ mab {on | off} ]\n"
 		"                               [ hwmode {vepa | veb} ]\n"
 		"                               [ backup_port DEVICE ] [ nobackup_port ]\n"
 		"                               [ self ] [ master ]\n"
@@ -311,7 +330,9 @@ static int brlink_modify(int argc, char **argv)
 	__s8 mcast_flood = -1;
 	__s8 bcast_flood = -1;
 	__s8 mcast_to_unicast = -1;
+	__s32 max_groups = -1;
 	__s8 locked = -1;
+	__s8 macauth = -1;
 	__s8 isolated = -1;
 	__s8 hairpin = -1;
 	__s8 bpdu_guard = -1;
@@ -382,6 +403,10 @@ static int brlink_modify(int argc, char **argv)
 			mcast_to_unicast = parse_on_off("mcast_to_unicast", *argv, &ret);
 			if (ret)
 				return ret;
+		} else if (strcmp(*argv, "mcast_max_groups") == 0) {
+			NEXT_ARG();
+			if (get_s32(&max_groups, *argv, 0))
+				invarg("invalid mcast_max_groups", *argv);
 		} else if (strcmp(*argv, "cost") == 0) {
 			NEXT_ARG();
 			cost = atoi(*argv);
@@ -435,6 +460,11 @@ static int brlink_modify(int argc, char **argv)
 		} else if (strcmp(*argv, "locked") == 0) {
 			NEXT_ARG();
 			locked = parse_on_off("locked", *argv, &ret);
+			if (ret)
+				return ret;
+		} else if (strcmp(*argv, "mab") == 0) {
+			NEXT_ARG();
+			macauth = parse_on_off("mab", *argv, &ret);
 			if (ret)
 				return ret;
 		} else if (strcmp(*argv, "backup_port") == 0) {
@@ -493,6 +523,9 @@ static int brlink_modify(int argc, char **argv)
 	if (mcast_to_unicast >= 0)
 		addattr8(&req.n, sizeof(req), IFLA_BRPORT_MCAST_TO_UCAST,
 			 mcast_to_unicast);
+	if (max_groups >= 0)
+		addattr32(&req.n, sizeof(req), IFLA_BRPORT_MCAST_MAX_GROUPS,
+			  max_groups);
 	if (learning >= 0)
 		addattr8(&req.n, sizeof(req), IFLA_BRPORT_LEARNING, learning);
 	if (learning_sync >= 0)
@@ -519,6 +552,9 @@ static int brlink_modify(int argc, char **argv)
 
 	if (locked >= 0)
 		addattr8(&req.n, sizeof(req), IFLA_BRPORT_LOCKED, locked);
+
+	if (macauth >= 0)
+		addattr8(&req.n, sizeof(req), IFLA_BRPORT_MAB, macauth);
 
 	if (backup_port_idx != -1)
 		addattr32(&req.n, sizeof(req), IFLA_BRPORT_BACKUP_PORT,
@@ -588,6 +624,8 @@ static int brlink_show(int argc, char **argv)
 int do_link(int argc, char **argv)
 {
 	ll_init_map(&rth);
+	timestamp = 0;
+
 	if (argc > 0) {
 		if (matches(*argv, "set") == 0 ||
 		    matches(*argv, "change") == 0)

@@ -68,6 +68,7 @@ enum bpf_mode {
 struct bpf_cfg_in {
 	const char *object;/*要加载的文件名*/
 	const char *section;/*要提取的段名称*/
+	const char *prog_name;
 	const char *uds;/*用户配置的uds name*/
 	enum bpf_prog_type type;/*bpf程序类型，例如BPF_PROG_TYPE_LWT_SEG6LOCAL*/
 	enum bpf_mode mode;/*bpf文件格式*/

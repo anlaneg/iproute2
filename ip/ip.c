@@ -1,10 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * ip.c		"ip" utility frontend.
- *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
  */
@@ -39,6 +35,7 @@ int oneline;
 int brief;
 int json;
 int timestamp;
+int echo_request;
 int force;
 int max_flush_loops = 10;
 int batch_mode;
@@ -125,6 +122,7 @@ static const struct cmd {
 	{ "mptcp",	do_mptcp },
 	{ "ioam",	do_ioam6 },
 	{ "help",	do_help },
+	{ "stats",	do_ipstats },
 	{ 0 }
 };
 
@@ -311,6 +309,8 @@ int main(int argc, char **argv)
 		} else if (matches(opt, "-all") == 0) {
 		    /*指明针对所有netns进行操作*/
 			do_all = true;
+		} else if (strcmp(opt, "-echo") == 0) {
+			++echo_request;
 		} else {
 			fprintf(stderr,
 				"Option \"%s\" is unknown, try \"ip -help\".\n",
