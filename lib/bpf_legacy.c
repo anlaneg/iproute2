@@ -66,13 +66,13 @@ static const struct bpf_prog_meta __bpf_prog_meta[] = {
 	[BPF_PROG_TYPE_SCHED_CLS] = {
 		.type		= "cls",
 		.subdir		= "tc",
-		.section	= ELF_SECTION_CLASSIFIER,
+		.section	= ELF_SECTION_CLASSIFIER,/*默认的section名称classifier*/
 		.may_uds_export	= true,
 	},
 	[BPF_PROG_TYPE_SCHED_ACT] = {
 		.type		= "act",
 		.subdir		= "tc",
-		.section	= ELF_SECTION_ACTION,
+		.section	= ELF_SECTION_ACTION,/*默认的section名称action*/
 		.may_uds_export	= true,
 	},
 	[BPF_PROG_TYPE_XDP] = {/*xdp程序*/
@@ -98,7 +98,7 @@ static const struct bpf_prog_meta __bpf_prog_meta[] = {
 	[BPF_PROG_TYPE_LWT_SEG6LOCAL] = {
 		.type		= "lwt_seg6local",
 		.subdir		= "ip",
-		.section	= ELF_SECTION_PROG,
+		.section	= ELF_SECTION_PROG,/*默认section名称为prog*/
 	},
 };
 
@@ -136,6 +136,7 @@ static inline __u64 bpf_ptr_to_u64(const void *ptr)
 	return (__u64)(unsigned long)ptr;
 }
 
+/*更新map中的内容*/
 static int bpf_map_update(int fd, const void *key, const void *value,
 			  uint64_t flags)
 {
@@ -546,7 +547,7 @@ static int bpf_mnt_check_target(const char *target)
 }
 
 /*检查挂载点文件系统类型是否如magic所指*/
-static int bpf_valid_mntpt(const char *mnt, unsigned long magic)
+static int bpf_valid_mntpt(const char *mnt/*挂载点目录*/, unsigned long magic)
 {
 	struct statfs st_fs;
 
@@ -559,7 +560,7 @@ static int bpf_valid_mntpt(const char *mnt, unsigned long magic)
 }
 
 /*返回可用挂载点*/
-static const char *bpf_find_mntpt_single(unsigned long magic, char *mnt,
+static const char *bpf_find_mntpt_single(unsigned long magic, char *mnt/*出参，返回mntp中fs magic指定的fs挂载点*/,
 					 int len, const char *mntpt/*挂载点名称*/)
 {
 	int ret;
@@ -726,8 +727,8 @@ static int bpf_gen_slave(const char *base, const char *name,
 	struct stat sb = {};
 	int ret;
 
-	snprintf(bpf_lnk_dir, sizeof(bpf_lnk_dir), "%s%s/", base, link);
-	snprintf(bpf_sub_dir, sizeof(bpf_sub_dir), "%s%s",  base, name);
+	snprintf(bpf_lnk_dir, sizeof(bpf_lnk_dir), "%s%s/", base, link);/*link名称*/
+	snprintf(bpf_sub_dir, sizeof(bpf_sub_dir), "%s%s",  base, name);/*子目录名称*/
 
 	//创建$base/$name指向 $base/$link
 	ret = symlink(bpf_lnk_dir, bpf_sub_dir);
@@ -762,8 +763,10 @@ static int bpf_gen_hierarchy(const char *base)
 {
 	int ret, i;
 
+	/*创建__bpf_types[0]对应的目录*/
 	ret = bpf_gen_master(base, bpf_prog_to_subdir(__bpf_types[0]));
 	for (i = 1; i < ARRAY_SIZE(__bpf_types) && !ret; i++)
+	    /*为每种type创建子目录，并使其指向__bpf_types[0]对应的目录*/
 		ret = bpf_gen_slave(base,
 				    bpf_prog_to_subdir(__bpf_types[i]),
 				    bpf_prog_to_subdir(__bpf_types[0]));
@@ -789,6 +792,7 @@ static const char *bpf_get_work_dir(enum bpf_prog_type type)
 		const char *out = mnt;
 
 		if (out && type) {
+		    /*挂载点+type对应的子目录*/
 			snprintf(bpf_tmp, sizeof(bpf_tmp), "%s%s/",
 				 out, bpf_prog_to_subdir(type));
 			out = bpf_tmp;
@@ -797,6 +801,7 @@ static const char *bpf_get_work_dir(enum bpf_prog_type type)
 	}
 
 	if (mnt_env)
+	    /*在mnt_env中查找bpf fs的挂载点*/
 		mnt = bpf_find_mntpt_single(BPF_FS_MAGIC, bpf_tmp,
 					    sizeof(bpf_tmp), mnt_env);
 	else
@@ -804,8 +809,9 @@ static const char *bpf_get_work_dir(enum bpf_prog_type type)
 		mnt = bpf_find_mntpt("bpf", BPF_FS_MAGIC, bpf_tmp,
 				     sizeof(bpf_tmp), bpf_known_mnts);
 	if (!mnt) {
+	    /*如有找到挂载点，进行挂载*/
 		mnt = mnt_env ? : BPF_DIR_MNT;
-		/*确保mnt存在*/
+		/*确保mnt存在，如果mnt目录不存在，则创建mnt目录*/
 		ret = bpf_mnt_check_target(mnt);
 		if (!ret)
 		    /*挂载bpf file system到mnt*/
@@ -816,13 +822,14 @@ static const char *bpf_get_work_dir(enum bpf_prog_type type)
 		}
 	}
 
-	//指定bpf工作目录
+	//指定bpf工作目录为挂载点目录
 	ret = snprintf(bpf_wrk_dir, sizeof(bpf_wrk_dir), "%s/", mnt);
 	if (ret < 0 || ret >= sizeof(bpf_wrk_dir)) {
 		mnt = NULL;
 		goto out;
 	}
 
+	/*生成目录层次*/
 	ret = bpf_gen_hierarchy(bpf_wrk_dir);
 	if (ret) {
 		mnt = NULL;
@@ -874,8 +881,8 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 	int i, ret, argc;
 	char **argv;
 
-	argv = cfg->argv;
-	argc = cfg->argc;
+	argv = cfg->argv;/*参数*/
+	argc = cfg->argc;/*参数数目*/
 
 	//解析bpf文件类型
 	if (opt_tbl[CBPF_BYTECODE] &&
@@ -895,6 +902,7 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 		   (matches(*argv, "object-pinned") == 0 ||
 		    matches(*argv, "pinned") == 0 ||
 		    matches(*argv, "fd") == 0)) {
+	    /*指明bpf需要pinned*/
 		cfg->mode = EBPF_PINNED;
 	} else {
 		fprintf(stderr, "What mode is \"%s\"?\n", *argv);
@@ -904,7 +912,8 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 	NEXT_ARG();
 	file = section = uds_name = NULL;
 	if (cfg->mode == EBPF_OBJECT || cfg->mode == EBPF_PINNED) {
-		file = *argv;/*取bpf文件名称*/
+	    /*取bpf文件名称*/
+		file = *argv;
 		NEXT_ARG_FWD();
 
 		/*如果未明确bpf程序类型，则通过type参数，确定具体type*/
@@ -915,6 +924,7 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 				     i++) {
 					if (!__bpf_prog_meta[i].type)
 						continue;
+					/*检查指明的type是否与匹配项一致*/
 					if (!matches(*argv,
 						     __bpf_prog_meta[i].type)) {
 						cfg->type = i;
@@ -944,7 +954,7 @@ static int bpf_do_parse(struct bpf_cfg_in *cfg, const bool *opt_tbl/*支持哪�
 			NEXT_ARG_FWD();
 		}
 
-		//设置uds_name
+		//如果此type容许uds导致，则通过环境变量设置uds_name 或者通过export关键字设置
 		if (__bpf_prog_meta[cfg->type].may_uds_export) {
 			uds_name = getenv(BPF_ENV_UDS);
 			if (argc > 0 && !uds_name &&
@@ -994,6 +1004,7 @@ static int bpf_do_load(struct bpf_cfg_in *cfg)
 {
 	if (cfg->mode == EBPF_OBJECT) {
 #ifdef HAVE_LIBBPF
+	    /*有libbpf,则通过lib进行加载*/
 		return iproute2_load_libbpf(cfg);
 #endif
 	    /*obj文件加载*/
@@ -1041,6 +1052,7 @@ int bpf_parse_common(struct bpf_cfg_in *cfg, const struct bpf_cfg_ops *ops)
 	}
 
 	if (ops->ebpf_cb) {
+	    /*obj且需要pinned*/
 		opt_tbl[EBPF_OBJECT]   = true;
 		opt_tbl[EBPF_PINNED]   = true;
 	}
@@ -1054,6 +1066,7 @@ int bpf_parse_and_load_common(struct bpf_cfg_in *cfg,
 {
 	int ret;
 
+	/*解析bpf参数，填充cfg*/
 	ret = bpf_parse_common(cfg, ops);
 	if (ret < 0)
 		return ret;
@@ -1251,6 +1264,7 @@ struct bpf_elf_ctx {
 	//通过af alg方式计算程序hash出错，认为no af alg
 	bool			noafalg;
 	struct bpf_elf_st	stat;
+	/*记录pin与path的映射关系*/
 	struct bpf_hash_entry	*ht[256];
 	char			*log;/*bpf日志空间*/
 	size_t			log_size;/*bpf日志空间大小*/
@@ -1313,11 +1327,13 @@ static int bpf_log_realloc(struct bpf_elf_ctx *ctx)
 	} else if (log_size < log_max) {
 		log_size <<= 1;
 		if (log_size > log_max)
+		    /*不能超过log_max*/
 			log_size = log_max;
 	} else {
 		return -EINVAL;
 	}
 
+	/*按log_size申请空间*/
 	ptr = realloc(ctx->log, log_size);
 	if (!ptr)
 		return -ENOMEM;
@@ -1368,7 +1384,7 @@ static int bpf_btf_load(void *btf/*btf段起始指针*/, size_t size_btf/*btf段
 		attr.btf_log_level = 1;
 	}
 
-	/*加载BTF段，调试用*/
+	/*加载BTF段,获得btf对应的fd*/
 	return bpf(BPF_BTF_LOAD, &attr, sizeof(attr));
 }
 
@@ -1382,6 +1398,7 @@ static int bpf_obj_pin(int fd, const char *pathname)
 	return bpf(BPF_OBJ_PIN, &attr, sizeof(attr));
 }
 
+/*通过alg socket获得文件object对应的sha1 hash*/
 static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
 {
 	struct sockaddr_alg alg = {
@@ -1401,10 +1418,12 @@ static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
 	if (cfd < 0)
 		return cfd;
 
+	/*绑定地址，指明使用哪种算法*/
 	ret = bind(cfd, (struct sockaddr *)&alg, sizeof(alg));
 	if (ret < 0)
 		goto out_cfd;
 
+	/*获得可运算的fd*/
 	ofd = accept(cfd, NULL, 0);
 	if (ofd < 0) {
 		ret = ofd;
@@ -1420,6 +1439,7 @@ static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
 		goto out_ofd;
 	}
 
+	/*取bpf文件状态*/
 	ret = fstat(ffd, &stbuff);
 	if (ret < 0) {
 		fprintf(stderr, "Error doing fstat: %s\n",
@@ -1427,7 +1447,7 @@ static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
 		goto out_ffd;
 	}
 
-	/*从ofd向ffd传输数据，传输长度为stbuff.st_size*/
+	/*从ffd向ofd传输数据，传输长度为stbuff.st_size*/
 	size = sendfile(ofd, ffd, NULL, stbuff.st_size);
 	if (size != stbuff.st_size) {
 		fprintf(stderr, "Error from sendfile (%zd vs %zu bytes): %s\n",
@@ -1436,7 +1456,7 @@ static int bpf_obj_hash(const char *object, uint8_t *out, size_t len)
 		goto out_ffd;
 	}
 
-	/*取文件内容对应的hash*/
+	/*取文件内容对应的sha1 hash值*/
 	size = read(ofd, out, len);
 	if (size != len) {
 		fprintf(stderr, "Error from read (%zd vs %zu bytes): %s\n",
@@ -1464,6 +1484,7 @@ static void bpf_init_env(void)
 	/* Don't bother in case we fail! */
 	setrlimit(RLIMIT_MEMLOCK, &limit);
 
+	/*触发bpffs挂载，创建相应子目录*/
 	if (!bpf_get_work_dir(BPF_PROG_TYPE_UNSPEC))
 		fprintf(stderr, "Continuing without mounted eBPF fs. Too old kernel?\n");
 }
@@ -1516,6 +1537,7 @@ static void bpf_make_pathname(char *pathname, size_t len, const char *name,
 	}
 }
 
+/*通过path获取指定类型的obj*/
 static int bpf_probe_pinned(const char *name, const struct bpf_elf_ctx *ctx,
 			    uint32_t pinning)
 {
@@ -1771,6 +1793,7 @@ probe:
 			return fd;
 	}
 
+	/*将map pin住*/
 	ret = bpf_place_pinned(fd, name, ctx, map->pinning);
 	if (ret < 0) {
 		close(fd);
@@ -2010,6 +2033,7 @@ static int bpf_fill_section_data(struct bpf_elf_ctx *ctx, int section,
 	sec_fd = elf_getscn(ctx->elf_fd, section);
 	if (!sec_fd)
 		return -EINVAL;
+
 	/*取section对应的头*/
 	if (gelf_getshdr(sec_fd, &sec_hdr) != &sec_hdr)
 		return -EIO;
@@ -2051,7 +2075,7 @@ static int bpf_fetch_maps_begin(struct bpf_elf_ctx *ctx, int section/*段编号*
 	ctx->sec_maps = section;
 	ctx->sec_done[section] = true;
 
-	//maps段字节大小大于ctx->maps提供的值，报错
+	//maps段字节大小大于ctx->maps提供的值(map数过多），报错
 	if (ctx->map_num > sizeof(ctx->maps)) {
 		fprintf(stderr, "Too many BPF maps in ELF section!\n");
 		return -ENOMEM;
@@ -2212,6 +2236,7 @@ static void bpf_btf_report(int fd, struct bpf_elf_ctx *ctx)
 	bpf_dump_error(ctx, "Verifier analysis:\n\n");
 }
 
+/*调用bpf系统调用，加载btf,获得其对应的fd*/
 static int bpf_btf_attach(struct bpf_elf_ctx *ctx)
 {
 	int tries = 0, fd;
@@ -2252,24 +2277,29 @@ static int bpf_btf_check_header(struct bpf_elf_ctx *ctx)
 	const char *str_start, *str_end;
 	unsigned int data_len;
 
+	/*btf header校验*/
 	if (hdr->magic != BTF_MAGIC) {
+	    /*magic有误*/
 		fprintf(stderr, "Object has wrong BTF magic: %x, expected: %x!\n",
 			hdr->magic, BTF_MAGIC);
 		return -EINVAL;
 	}
 
 	if (hdr->version != BTF_VERSION) {
+	    /*version有误*/
 		fprintf(stderr, "Object has wrong BTF version: %u, expected: %u!\n",
 			hdr->version, BTF_VERSION);
 		return -EINVAL;
 	}
 
 	if (hdr->flags) {
+	    /*flags必须为0*/
 		fprintf(stderr, "Object has unsupported BTF flags %x!\n",
 			hdr->flags);
 		return -EINVAL;
 	}
 
+	/*校验str section,type section offset*/
 	data_len = ctx->btf_data->d_size - sizeof(*hdr);
 	if (data_len < hdr->type_off ||
 	    data_len < hdr->str_off ||
@@ -2328,6 +2358,7 @@ static int bpf_btf_prep_type_data(struct bpf_elf_ctx *ctx)
 	uint16_t var_len;
 	int ret, kind;
 
+	/*注册void type*/
 	ret = bpf_btf_register_type(ctx, &btf_type_void);
 	if (ret < 0)
 		return ret;
@@ -2369,6 +2400,7 @@ static int bpf_btf_prep_type_data(struct bpf_elf_ctx *ctx)
 			return -EINVAL;
 		}
 
+		/*注册此type*/
 		ret = bpf_btf_register_type(ctx, type);
 		if (ret < 0)
 			return ret;
@@ -2392,7 +2424,7 @@ static void bpf_fetch_btf_end(struct bpf_elf_ctx *ctx)
 
 	if (fd < 0)
 		return;
-	ctx->btf_fd = fd;
+	ctx->btf_fd = fd;/*填充btf fd*/
 	if (bpf_btf_prep_data(ctx) < 0) {
 		close(ctx->btf_fd);
 		ctx->btf_fd = 0;
@@ -2422,7 +2454,7 @@ static int bpf_fetch_ancillary(struct bpf_elf_ctx *ctx, bool check_text_sec)
 	struct bpf_elf_sec_data data;
 	int i, ret = -1;
 
-	//遍历每个elf section
+	//遍历每个elf section，解析其内容存入ctx
 	for (i = 1; i < ctx->elf_hdr.e_shnum; i++) {
 	    //取此section对应的信息
 		ret = bpf_fill_section_data(ctx, i, &data);
@@ -2442,7 +2474,7 @@ static int bpf_fetch_ancillary(struct bpf_elf_ctx *ctx, bool check_text_sec)
 			 (data.sec_hdr.sh_flags & SHF_EXECINSTR/*标明含可执行指令*/) &&
 			 !strcmp(data.sec_name, ".text") &&
 			 check_text_sec)
-		    /*program段，且section为.text，不加载.text段*/
+		    /*program段，且section为.text，且不加载.text段*/
 			ret = bpf_fetch_text(ctx, i, &data);
 		else if (data.sec_hdr.sh_type == SHT_SYMTAB &&
 			 !strcmp(data.sec_name, ".symtab"))
@@ -2463,7 +2495,7 @@ static int bpf_fetch_ancillary(struct bpf_elf_ctx *ctx, bool check_text_sec)
 		}
 	}
 
-	/*btf段，用于bpf调试*/
+	/*使kernel 加载btf段*/
 	if (bpf_has_btf_data(ctx))
 		bpf_fetch_btf_end(ctx);
 
@@ -2874,6 +2906,7 @@ static void bpf_save_finfo(struct bpf_elf_ctx *ctx)
 
 	memset(&ctx->stat, 0, sizeof(ctx->stat));
 
+	/*取文件统计信息*/
 	ret = fstat(ctx->obj_fd, &st);
 	if (ret < 0) {
 		fprintf(stderr, "Stat of elf file failed: %s\n",
@@ -2885,6 +2918,7 @@ static void bpf_save_finfo(struct bpf_elf_ctx *ctx)
 	ctx->stat.st_ino = st.st_ino;
 }
 
+/*自fp中读取一行内容，获得id与path的映射关系*/
 static int bpf_read_pin_mapping(FILE *fp, uint32_t *id, char *path)
 {
 	char buff[PATH_MAX];
@@ -2893,11 +2927,13 @@ static int bpf_read_pin_mapping(FILE *fp, uint32_t *id, char *path)
 		char *ptr = buff;
 
 		while (*ptr == ' ' || *ptr == '\t')
-			ptr++;
+			ptr++;/*跳过空格/tab*/
 
+		/*跳过空行/注释行*/
 		if (*ptr == '#' || *ptr == '\n' || *ptr == 0)
 			continue;
 
+		/*解析id 与path的映射*/
 		if (sscanf(ptr, "%i %s\n", id, path) != 2 &&
 		    sscanf(ptr, "%i %s #", id, path) != 2) {
 			strcpy(path, ptr);
@@ -2910,6 +2946,7 @@ static int bpf_read_pin_mapping(FILE *fp, uint32_t *id, char *path)
 	return 0;
 }
 
+/*检查是否预留的id*/
 static bool bpf_pinning_reserved(uint32_t pinning)
 {
 	switch (pinning) {
@@ -2922,6 +2959,7 @@ static bool bpf_pinning_reserved(uint32_t pinning)
 	}
 }
 
+/*ctx->ht初始化*/
 static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 {
 	struct bpf_hash_entry *entry;
@@ -2937,6 +2975,7 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 
 	while ((ret = bpf_read_pin_mapping(fp, &pinning, subpath))) {
 		if (ret == -1) {
+		    /*读取内容失败，返回*/
 			fprintf(stderr, "Database %s is corrupted at: %s\n",
 				db_file, subpath);
 			fclose(fp);
@@ -2949,6 +2988,7 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 			continue;
 		}
 
+		/*申请每个entry,记录pinning与subpath映射关系*/
 		entry = malloc(sizeof(*entry));
 		if (!entry) {
 			fprintf(stderr, "No memory left for db entry!\n");
@@ -2963,6 +3003,7 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 			continue;
 		}
 
+		/*将entry合入到ctx->ht表*/
 		entry->next = ctx->ht[pinning & (ARRAY_SIZE(ctx->ht) - 1)];
 		ctx->ht[pinning & (ARRAY_SIZE(ctx->ht) - 1)] = entry;
 	}
@@ -3032,11 +3073,13 @@ static void bpf_get_cfg(struct bpf_elf_ctx *ctx)
 		char tmp[16] = {};
 
 		if (read(fd, tmp, sizeof(tmp)) > 0)
+		    /*返回jit是否开启*/
 			ctx->cfg.jit_enabled = atoi(tmp);
 		close(fd);
 	}
 }
 
+/*初始化ctx*/
 static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 			    enum bpf_prog_type type, __u32 ifindex,
 			    bool verbose)
@@ -3053,7 +3096,7 @@ static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 	memset(ctx, 0, sizeof(*ctx));
 	bpf_get_cfg(ctx);
 
-	//计算pathname对应的hash值，存储在tmp中
+	//计算pathname对应的sha1 hash值，存储在tmp中
 	ret = bpf_obj_hash(pathname, tmp, sizeof(tmp));
 	if (ret)
 	    //出错，认为no af alg
@@ -3096,7 +3139,7 @@ static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 	if (ret < 0)
 		goto out_elf;
 
-	//每个section一个ctx->sec_done变量
+	//申请空间，使每个section一个ctx->sec_done变量
 	ctx->sec_done = calloc(ctx->elf_hdr.e_shnum,
 			       sizeof(*(ctx->sec_done)));
 	if (!ctx->sec_done) {
@@ -3104,12 +3147,14 @@ static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 		goto out_elf;
 	}
 
+	/*如果冗长输出，则初始化log*/
 	if (ctx->verbose && bpf_log_realloc(ctx)) {
 		ret = -ENOMEM;
 		goto out_free;
 	}
 
 	bpf_save_finfo(ctx);
+	/*加载bpf pinning映射关系*/
 	bpf_hash_init(ctx, CONFDIR "/bpf_pinning");
 
 	return 0;
@@ -3167,11 +3212,12 @@ static void bpf_elf_ctx_destroy(struct bpf_elf_ctx *ctx, bool failure)
 static struct bpf_elf_ctx __ctx;
 
 static int bpf_obj_open(const char *pathname/*要加载的程序路径*/, enum bpf_prog_type type/*程序类型*/,
-			const char *section/*加载的段名称*/, __u32 ifindex/*关联的设备index*/, bool verbose)
+			const char *section/*加载的段名称*/, __u32 ifindex/*关联的设备index*/, bool verbose/*是否冗余输出*/)
 {
 	struct bpf_elf_ctx *ctx = &__ctx;
 	int fd = 0, ret;
 
+	/*初始化ctx*/
 	ret = bpf_elf_ctx_init(ctx, pathname, type, ifindex, verbose);
 	if (ret < 0) {
 		fprintf(stderr, "Cannot initialize ELF context!\n");

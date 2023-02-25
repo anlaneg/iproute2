@@ -352,7 +352,7 @@ static const char *action_n2a(int action)
  *
  * In error case, returns -1 and does not touch @result. Otherwise returns 0.
  */
-int action_a2n(char *arg, int *result, bool allow_num)
+int action_a2n(char *arg, int *result, bool allow_num/*是否容许数字*/)
 {
 	int n;
 	char dummy;
@@ -362,22 +362,24 @@ int action_a2n(char *arg, int *result, bool allow_num)
 	} a2n[] = {
 		{"continue", TC_ACT_UNSPEC},
 		{"drop", TC_ACT_SHOT},
-		{"shot", TC_ACT_SHOT},
+		{"shot", TC_ACT_SHOT},/*shot,drop对应相同的内容*/
 		{"pass", TC_ACT_OK},
-		{"ok", TC_ACT_OK},
-		{"reclassify", TC_ACT_RECLASSIFY},
-		{"pipe", TC_ACT_PIPE},
-		{"goto", TC_ACT_GOTO_CHAIN},
-		{"jump", TC_ACT_JUMP},
-		{"trap", TC_ACT_TRAP},
+		{"ok", TC_ACT_OK},/*ok,pass对应相同的内容*/
+		{"reclassify", TC_ACT_RECLASSIFY},/*指明再查询*/
+		{"pipe", TC_ACT_PIPE},/**/
+		{"goto", TC_ACT_GOTO_CHAIN},/*跳到另一个chain*/
+		{"jump", TC_ACT_JUMP},/**/
+		{"trap", TC_ACT_TRAP},/**/
 		{ NULL },
 	}, *iter;
 
 	//检查参数是否为a2n中的一个action
 	for (iter = a2n; iter->a; iter++) {
 		if (matches(arg, iter->a) != 0)
+		    /*匹配不成功，尝试下一个*/
 			continue;
-		n = iter->n;/*命中其中的一个action,取其对应的type*/
+		/*命中其中的一个action,取其对应的type*/
+		n = iter->n;
 		goto out_ok;
 	}
 
@@ -391,32 +393,37 @@ out_ok:
 	return 0;
 }
 
-static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p,
-				  bool allow_num, bool ignore_a2n_miss)
+static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p/*出参，控制字段取值*/,
+				  bool allow_num/*是否容许数字*/, bool ignore_a2n_miss)
 {
 	int argc = *argc_p;
 	char **argv = *argv_p;
 	int result;
 
 	if (!argc)
+	    /*无参数，解析失败*/
 		return -1;
+
 	//匹配控制字段
-	if (action_a2n(*argv, &result, allow_num) == -1) {
+	if (action_a2n(*argv, &result/*出参*/, allow_num) == -1) {
 		if (!ignore_a2n_miss)
 			fprintf(stderr, "Bad action type %s\n", *argv);
 		return -1;
 	}
 
-	//需要执行chain跳转，在result中或上chain_index
+	//需要执行chain跳转，在result中获取chain_index
 	if (result == TC_ACT_GOTO_CHAIN) {
 		__u32 chain_index;
 
 		NEXT_ARG();
 		if (matches(*argv, "chain") != 0) {
+		    /*goto后面必须指明chain关键字*/
 			fprintf(stderr, "\"chain index\" expected\n");
 			return -1;
 		}
 		NEXT_ARG();
+
+		/*解析chain id,chain id不得大于TC_ACT_EXT_VAL_MASK*/
 		if (get_u32(&chain_index, *argv, 10) ||
 		    chain_index > TC_ACT_EXT_VAL_MASK) {
 			fprintf(stderr, "Illegal \"chain index\"\n");
@@ -430,6 +437,7 @@ static int __parse_action_control(int *argc_p, char ***argv_p, int *result_p,
 		__u32 jump_cnt = 0;
 
 		NEXT_ARG();
+		/*解析jump对应的参数*/
 		if (get_u32(&jump_cnt, *argv, 10) ||
 		    jump_cnt > TC_ACT_EXT_VAL_MASK) {
 			fprintf(stderr, "Invalid \"jump count\" (%s)\n", *argv);
@@ -474,10 +482,11 @@ int parse_action_control(int *argc_p, char ***argv_p,
  * In case there is an error during parsing, the default result is used.
  */
 void parse_action_control_dflt(int *argc_p, char ***argv_p,
-			       int *result_p, bool allow_num,
-			       int default_result)
+			       int *result_p/*出参，控制字段取值*/, bool allow_num/*控制字段，是否容许数字*/,
+			       int default_result/*默认控制字段*/)
 {
 	if (__parse_action_control(argc_p, argv_p, result_p, allow_num, true))
+	    /*解析失败，填充默认控制字段*/
 		*result_p = default_result;
 }
 

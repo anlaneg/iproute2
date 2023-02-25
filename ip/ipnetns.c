@@ -640,7 +640,7 @@ out:
 
 }
 
-int netns_identify_pid(const char *pidstr, char *name, int len)
+int netns_identify_pid(const char *pidstr/*进程id*/, char *name/*出参，此进程net ns中对应的名称*/, int len)
 {
 	char net_path[PATH_MAX];
 	int netns = -1, ret = -1;
@@ -650,6 +650,7 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 
 	name[0] = '\0';
 
+	/*打开ns目上录*/
 	snprintf(net_path, sizeof(net_path), "/proc/%s/ns/net", pidstr);
 	netns = open(net_path, O_RDONLY);
 	if (netns < 0) {
@@ -657,11 +658,15 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 			strerror(errno));
 		goto out;
 	}
+
+	/*通过fstat取此目录的统计信息*/
 	if (fstat(netns, &netst) < 0) {
 		fprintf(stderr, "Stat of netns failed: %s\n",
 			strerror(errno));
 		goto out;
 	}
+
+	/*打开run目录*/
 	dir = opendir(NETNS_RUN_DIR);
 	if (!dir) {
 		/* Succeed treat a missing directory as an empty directory */
@@ -679,6 +684,7 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 		char name_path[PATH_MAX];
 		struct stat st;
 
+		/*跳过'.','..'文件*/
 		if (strcmp(entry->d_name, ".") == 0)
 			continue;
 		if (strcmp(entry->d_name, "..") == 0)
@@ -692,6 +698,7 @@ int netns_identify_pid(const char *pidstr, char *name, int len)
 
 		if ((st.st_dev == netst.st_dev) &&
 		    (st.st_ino == netst.st_ino)) {
+		    /*匹配成功，将目录复制到name中*/
 			strlcpy(name, entry->d_name, len);
 		}
 	}

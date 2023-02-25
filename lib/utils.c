@@ -310,6 +310,7 @@ int get_u32(__u32 *val, const char *arg, int base)
 
 	if (!arg || !*arg)
 		return -1;
+
 	//转为数字
 	res = strtoul(arg, &ptr, base);
 
@@ -542,6 +543,7 @@ static void set_address_type(inet_prefix *addr)
 		if (IN6_IS_ADDR_UNSPECIFIED(addr->data))
 			addr->flags |= ADDRTYPE_INET_UNSPEC;
 		else if (IN6_IS_ADDR_MULTICAST(addr->data))
+			/*组播地址*/
 			addr->flags |= ADDRTYPE_INET_MULTI;
 		else
 			addr->flags |= ADDRTYPE_INET;
@@ -555,6 +557,7 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 
 	if (strcmp(name, "default") == 0) {
 		if (family == AF_MPLS)
+			/*af_mpls不支持*/
 			return -1;
 		addr->family = family;
 		addr->bytelen = af_byte_len(addr->family);
@@ -588,9 +591,10 @@ static int __get_addr_1(inet_prefix *addr, const char *name, int family)
 	}
 
 	if (strchr(name, ':')) {
-		//ipv6地址转换
+		//包含':',为ipv6地址，执行ipv6地址转换
 		addr->family = AF_INET6;
 		if (family != AF_UNSPEC && family != AF_INET6)
+			/*family指定非ipv6,解析失败*/
 			return -1;
 		if (inet_pton(AF_INET6, name, addr->data) <= 0)
 			return -1;
@@ -689,6 +693,7 @@ int get_prefix_1(inet_prefix *dst, char *arg/*待转换地址*/, int family/*协
 	if (err)
 		return err;
 
+	/*取各family地址长度（单位为bits)*/
 	bitlen = af_bit_len(dst->family);
 
 	flags = 0;
@@ -698,9 +703,11 @@ int get_prefix_1(inet_prefix *dst, char *arg/*待转换地址*/, int family/*协
 		//不支持掩码形式，直接返-1
 		if (dst->bitlen == -2)
 			return -1;
+
 		//执行掩码转换
 		if (get_netmask(&plen, slash + 1, 0))
 			return -1;
+
 		//掩码长度如大于地址长度，则出错
 		if (plen > bitlen)
 			return -1;
@@ -771,6 +778,7 @@ int get_addr_rta(inet_prefix *dst, const struct rtattr *rta, int family)
 int get_prefix(inet_prefix *dst, char *arg, int family)
 {
 	if (family == AF_PACKET) {
+		/*af_packet不支持此函数*/
 		fprintf(stderr,
 			"Error: \"%s\" may be inet prefix, but it is not allowed in this context.\n",
 			arg);

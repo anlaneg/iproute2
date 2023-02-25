@@ -179,6 +179,7 @@ int print_fdb(struct nlmsghdr *n, void *arg)
 	if (n->nlmsg_type == RTM_DELNEIGH)
 		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
 
+	/*显示link 地址*/
 	if (tb[NDA_LLADDR]) {
 		const char *lladdr;
 		SPRINT_BUF(b1);
@@ -192,6 +193,7 @@ int print_fdb(struct nlmsghdr *n, void *arg)
 				   "mac", "%s ", lladdr);
 	}
 
+	/*显示接口名称*/
 	if (!filter_index && r->ndm_ifindex) {
 		print_string(PRINT_FP, NULL, "dev ", NULL);
 
@@ -349,6 +351,7 @@ static int fdb_show(int argc, char **argv)
 	}
 
 	if (br) {
+	    /*取对应的桥设备index*/
 		int br_ifindex = ll_name_to_index(br);
 
 		if (br_ifindex == 0) {
@@ -375,6 +378,7 @@ static int fdb_show(int argc, char **argv)
 	}
 
 	new_json_obj(json);
+	/*显示fdb内容*/
 	if (rtnl_dump_filter(&rth, print_fdb, stdout) < 0) {
 		fprintf(stderr, "Dump terminated\n");
 		exit(1);
@@ -684,6 +688,7 @@ int do_fdb(int argc, char **argv)
 		if (matches(*argv, "show") == 0 ||
 		    matches(*argv, "lst") == 0 ||
 		    matches(*argv, "list") == 0)
+		    /*显示桥设备的fdb表*/
 			return fdb_show(argc-1, argv+1);
 		if (matches(*argv, "help") == 0)
 			usage();

@@ -8,7 +8,7 @@
 #include "namespace.h"
 
 int cmd_exec(const char *cmd, char **argv, bool do_fork/*是否需要先fork*/,
-	     int (*setup)(void *), void *arg)
+	     int (*setup)(void *)/*子进程执行前调用*/, void *arg/*setup函数参数*/)
 {
 	fflush(stdout);
 	if (do_fork) {

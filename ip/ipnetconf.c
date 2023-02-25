@@ -87,6 +87,7 @@ int print_netconf(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n, void *arg)
 	if (n->nlmsg_type == RTM_DELNETCONF)
 		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
 
+	/*显示family*/
 	print_string(PRINT_ANY, "family",
 		     "%s ", family_name(ncm->ncm_family));
 
@@ -104,11 +105,13 @@ int print_netconf(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n, void *arg)
 			dev = ll_index_to_name(ifindex);
 			break;
 		}
+		/*显示接口名称*/
 		print_color_string(PRINT_ANY, COLOR_IFNAME,
 				   "interface", "%s ", dev);
 	}
 
 	if (tb[NETCONFA_FORWARDING])
+		/*指明forward是否开启*/
 		print_on_off(PRINT_ANY, "forwarding", "forwarding %s ",
 			     rta_getattr_u32(tb[NETCONFA_FORWARDING]));
 
@@ -125,6 +128,7 @@ int print_netconf(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n, void *arg)
 	}
 
 	if (tb[NETCONFA_MC_FORWARDING])
+		/*指明组播是否开启*/
 		print_on_off(PRINT_ANY, "mc_forwarding", "mc_forwarding %s ",
 			     rta_getattr_u32(tb[NETCONFA_MC_FORWARDING]));
 
@@ -167,7 +171,7 @@ static int do_show(int argc, char **argv)
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct netconfmsg)),
 		.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK,
-		.n.nlmsg_type = RTM_GETNETCONF,
+		.n.nlmsg_type = RTM_GETNETCONF,/*指明请求为netconf*/
 	};
 
 	ipnetconf_reset_filter(0);
@@ -176,6 +180,7 @@ static int do_show(int argc, char **argv)
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
+			/*查找dev指定的设备名称，确定ifindex*/
 			filter.ifindex = ll_name_to_index(*argv);
 			if (filter.ifindex <= 0) {
 				fprintf(stderr,
@@ -192,8 +197,9 @@ static int do_show(int argc, char **argv)
 	if (filter.ifindex && filter.family != AF_UNSPEC) {
 		req.ncm.ncm_family = filter.family;
 		addattr_l(&req.n, sizeof(req), NETCONFA_IFINDEX,
-			  &filter.ifindex, sizeof(filter.ifindex));
+			  &filter.ifindex, sizeof(filter.ifindex));/*指明dump指定设备*/
 
+		/*向kernel发送请求*/
 		if (rtnl_send(&rth, &req.n, req.n.nlmsg_len) < 0) {
 			perror("Can not send request");
 			exit(1);
@@ -234,13 +240,16 @@ dump:
 int do_ipnetconf(int argc, char **argv)
 {
 	if (argc > 0) {
+		/*多个参数时的情况*/
 		if (matches(*argv, "show") == 0 ||
 		    matches(*argv, "lst") == 0 ||
 		    matches(*argv, "list") == 0)
+			/*传入参数*/
 			return do_show(argc-1, argv+1);
 		if (matches(*argv, "help") == 0)
 			usage();
 	} else
+		/*零参数情况*/
 		return do_show(0, NULL);
 
 	fprintf(stderr,

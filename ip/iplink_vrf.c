@@ -39,10 +39,10 @@ static int vrf_parse_opt(struct link_util *lu, int argc, char **argv,
 
 			NEXT_ARG();
 
-			/*添加vrf table*/
+			/*添加vrf table id*/
 			if (rtnl_rttable_a2n(&table, *argv))
 				invarg("invalid table ID\n", *argv);
-			addattr32(n, 1024, IFLA_VRF_TABLE, table);
+			addattr32(n, 1024, IFLA_VRF_TABLE, table);/*添加table id*/
 		} else if (matches(*argv, "help") == 0) {
 			explain();
 			return -1;
@@ -64,6 +64,7 @@ static void vrf_print_opt(struct link_util *lu, FILE *f, struct rtattr *tb[])
 	if (!tb)
 		return;
 
+	/*显示取得的vrf table id*/
 	if (tb[IFLA_VRF_TABLE])
 		print_uint(PRINT_ANY,
 			   "table",
@@ -85,12 +86,14 @@ static void vrf_slave_print_opt(struct link_util *lu, FILE *f,
 	}
 }
 
+/*显示帮助信息*/
 static void vrf_print_help(struct link_util *lu, int argc, char **argv,
 			   FILE *f)
 {
 	vrf_explain(f);
 }
 
+/*vrf link解析*/
 struct link_util vrf_link_util = {
 	.id		= "vrf",
 	.maxattr	= IFLA_VRF_MAX,
@@ -163,6 +166,7 @@ __u32 ipvrf_get_table(const char *name)
 	if (strcmp(RTA_DATA(li[IFLA_INFO_KIND]), "vrf"))
 		goto out;
 
+	/*返回vrf link关联的table*/
 	parse_rtattr_nested(vrf_attr, IFLA_VRF_MAX, li[IFLA_INFO_DATA]);
 	if (vrf_attr[IFLA_VRF_TABLE])
 		tb_id = rta_getattr_u32(vrf_attr[IFLA_VRF_TABLE]);
@@ -198,6 +202,7 @@ int name_is_vrf(const char *name)
 	int ifindex = 0;
 	int len;
 
+	/*添加接口名称*/
 	addattr_l(&req.n, sizeof(req), IFLA_IFNAME, name, strlen(name) + 1);
 
 	if (rtnl_talk_suppress_rtnl_errmsg(&rth, &req.n, &answer) < 0)
@@ -220,9 +225,11 @@ int name_is_vrf(const char *name)
 	if (!li[IFLA_INFO_KIND])
 		goto out;
 
+	/*接口类型需要为vrf*/
 	if (strcmp(RTA_DATA(li[IFLA_INFO_KIND]), "vrf"))
 		goto out;
 
+	/*返回接口ifindex*/
 	ifindex = ifi->ifi_index;
 out:
 	free(answer);

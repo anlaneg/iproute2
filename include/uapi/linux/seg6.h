@@ -23,7 +23,7 @@
  */
 struct ipv6_sr_hdr {
 	__u8	nexthdr;
-	__u8	hdrlen;
+	__u8	hdrlen;/*右侧3位+1为实际头部长度*/
 	__u8	type;
 	/*指向第一个segment*/
 	__u8	segments_left;

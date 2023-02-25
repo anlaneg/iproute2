@@ -244,7 +244,7 @@ static int tc_filter_modify(int cmd, unsigned int flags, int argc, char **argv)
 		addattr_l(&req.n, sizeof(req), TCA_RATE, &est, sizeof(est));
 
 	//已完成netlink消息填充，向kernel执行netlink通信
-	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
+	if (rtnl_talk(&rth, &req.n, NULL/*未提取响应*/) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
 	}

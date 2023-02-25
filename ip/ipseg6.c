@@ -53,8 +53,8 @@ static struct {
 	unsigned int cmd;
 	inet_prefix addr;
 	__u32 keyid;
-	const char *pass;
-	__u8 alg_id;
+	const char *pass;/*密码*/
+	__u8 alg_id;/*算法类型*/
 } opts;
 
 static void print_dumphmac(struct rtattr *attrs[])
@@ -90,6 +90,7 @@ static void print_dumphmac(struct rtattr *attrs[])
 	print_string(PRINT_ANY, "secret", "secret \"%s\"\n", secret);
 }
 
+/*显示tunnel src*/
 static void print_tunsrc(struct rtattr *attrs[])
 {
 	const char *dst
@@ -138,6 +139,7 @@ static int seg6_do_cmd(void)
 	struct nlmsghdr *answer;
 	int repl = 0, dump = 0;
 
+	/*取seg6对应的family*/
 	if (genl_family < 0) {
 		if (rtnl_open_byproto(&grth, 0, NETLINK_GENERIC) < 0) {
 			fprintf(stderr, "Cannot open generic netlink socket\n");
@@ -152,6 +154,7 @@ static int seg6_do_cmd(void)
 	switch (opts.cmd) {
 	case SEG6_CMD_SETHMAC:
 	{
+	    /*设置hmac*/
 		addattr32(&req.n, sizeof(req), SEG6_ATTR_HMACKEYID, opts.keyid);
 		addattr8(&req.n, sizeof(req), SEG6_ATTR_SECRETLEN,
 			 strlen(opts.pass));
@@ -162,21 +165,26 @@ static int seg6_do_cmd(void)
 		break;
 	}
 	case SEG6_CMD_SET_TUNSRC:
+	    /*设置tunnel src*/
 		addattr_l(&req.n, sizeof(req), SEG6_ATTR_DST, opts.addr.data,
 			  sizeof(struct in6_addr));
 		break;
 	case SEG6_CMD_DUMPHMAC:
+	    /*显示hmac*/
 		dump = 1;
 		break;
 	case SEG6_CMD_GET_TUNSRC:
+	    /*显示tunsrc*/
 		repl = 1;
 		break;
 	}
 
 	if (!repl && !dump) {
+	    /*设置tunnel src或者设置hmac*/
 		if (rtnl_talk(&grth, &req.n, NULL) < 0)
 			return -1;
 	} else if (repl) {
+	    /*显示tunsrc*/
 		if (rtnl_talk(&grth, &req.n, &answer) < 0)
 			return -2;
 		new_json_obj(json);
@@ -187,6 +195,7 @@ static int seg6_do_cmd(void)
 		delete_json_obj();
 		free(answer);
 	} else {
+	    /*显示hmac*/
 		req.n.nlmsg_flags |= NLM_F_DUMP;
 		req.n.nlmsg_seq = grth.dump = ++grth.seq;
 		if (rtnl_send(&grth, &req, req.n.nlmsg_len) < 0) {
@@ -206,7 +215,7 @@ static int seg6_do_cmd(void)
 	return 0;
 }
 
-/*ip sr 配置处理*/
+/*ip sr 命令配置处理，当前主要支持hmac的显示及配置，tunsrc的显示及配置*/
 int do_seg6(int argc, char **argv)
 {
     /*显示帮助信息*/
@@ -215,15 +224,21 @@ int do_seg6(int argc, char **argv)
 
 	memset(&opts, 0, sizeof(opts));
 
+	/*hmac相关配置*/
 	if (matches(*argv, "hmac") == 0) {
 		NEXT_ARG();
 		if (matches(*argv, "show") == 0) {
+		    /*显示hmac*/
 			opts.cmd = SEG6_CMD_DUMPHMAC;
 		} else if (matches(*argv, "set") == 0) {
 			NEXT_ARG();
+
+			/*设置keyid*/
 			if (get_u32(&opts.keyid, *argv, 0) || opts.keyid == 0)
 				invarg("hmac KEYID value is invalid", *argv);
 			NEXT_ARG();
+
+			/*设置算法id*/
 			if (strcmp(*argv, "sha1") == 0) {
 				opts.alg_id = SEG6_HMAC_ALGO_SHA1;
 			} else if (strcmp(*argv, "sha256") == 0) {
@@ -231,16 +246,20 @@ int do_seg6(int argc, char **argv)
 			} else {
 				invarg("hmac ALGO value is invalid", *argv);
 			}
+
+			/*指明设置hmac*/
 			opts.cmd = SEG6_CMD_SETHMAC;
-			opts.pass = getpass(HMAC_KEY_PROMPT);
+			opts.pass = getpass(HMAC_KEY_PROMPT);/*自终端收取一个密码*/
 		} else {
 			invarg("unknown", *argv);
 		}
 	} else if (matches(*argv, "tunsrc") == 0) {
 		NEXT_ARG();
 		if (matches(*argv, "show") == 0) {
+		    /*显示tunnel src*/
 			opts.cmd = SEG6_CMD_GET_TUNSRC;
 		} else if (matches(*argv, "set") == 0) {
+		    /*设置tunnel src*/
 			NEXT_ARG();
 			opts.cmd = SEG6_CMD_SET_TUNSRC;
 			get_addr(&opts.addr, *argv, AF_INET6);

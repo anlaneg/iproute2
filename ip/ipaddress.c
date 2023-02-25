@@ -1344,8 +1344,10 @@ static int flush_update(void)
 static int set_lifetime(unsigned int *lifetime, char *argv)
 {
 	if (strcmp(argv, "forever") == 0)
+		/*lifetime为forever*/
 		*lifetime = INFINITY_LIFE_TIME;
 	else if (get_u32(lifetime, argv, 0))
+		/*按数字解析时失败*/
 		return -1;
 
 	return 0;
@@ -1362,7 +1364,7 @@ static unsigned int get_ifa_flags(struct ifaddrmsg *ifa,
 static const struct ifa_flag_data_t {
 	const char *name;
 	unsigned long mask;
-	bool readonly;
+	bool readonly;/*是否只读，不容许配置*/
 	bool v6only;
 } ifa_flag_data[] = {
 	{ .name = "secondary",		.mask = IFA_F_SECONDARY,	.readonly = true,	.v6only = false},
@@ -1375,6 +1377,7 @@ static const struct ifa_flag_data_t {
 	{ .name = "tentative",		.mask = IFA_F_TENTATIVE,	.readonly = true,	.v6only = true},
 	{ .name = "permanent",		.mask = IFA_F_PERMANENT,	.readonly = true,	.v6only = true},
 	{ .name = "mngtmpaddr",		.mask = IFA_F_MANAGETEMPADDR,	.readonly = false,	.v6only = true},
+	/*不添加prefix路由*/
 	{ .name = "noprefixroute",	.mask = IFA_F_NOPREFIXROUTE,	.readonly = false,	.v6only = false},
 	{ .name = "autojoin",		.mask = IFA_F_MCAUTOJOIN,	.readonly = false,	.v6only = false},
 	{ .name = "stable-privacy",	.mask = IFA_F_STABLE_PRIVACY, 	.readonly = true,	.v6only = true},
@@ -1384,6 +1387,7 @@ static const struct ifa_flag_data_t {
 static const struct ifa_flag_data_t* lookup_flag_data_by_name(const char* flag_name) {
 	unsigned int i;
 
+	/*遍历ifa_flag_data,如果参数与name列匹配，则返回flag_data*/
 	for (i = 0; i < ARRAY_SIZE(ifa_flag_data); ++i) {
 		if (strcmp(flag_name, ifa_flag_data[i].name) == 0)
 			return &ifa_flag_data[i];
@@ -2387,7 +2391,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 
 			if (peer_len)
 				duparg("peer", *argv);
-			//解析对端的地址，并将其填充到IFA_ADDRESS中
+			//按req.ifa.ifa_family解析对端的地址，并将其填充到IFA_ADDRESS中
 			get_prefix(&peer, *argv, req.ifa.ifa_family);
 			peer_len = peer.bytelen;/*对端地址长度*/
 			if (req.ifa.ifa_family == AF_UNSPEC)
@@ -2456,6 +2460,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 				duparg("valid_lft", *argv);
 			NEXT_ARG();
 			valid_lftp = *argv;
+			/*解析并设置life time*/
 			if (set_lifetime(&valid_lft, *argv))
 				invarg("valid_lft value", *argv);
 		} else if (matches(*argv, "preferred_lft") == 0) {
@@ -2463,15 +2468,20 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 				duparg("preferred_lft", *argv);
 			NEXT_ARG();
 			preferred_lftp = *argv;
+			/*解析并设置pref life time*/
 			if (set_lifetime(&preferred_lft, *argv))
 				invarg("preferred_lft value", *argv);
 		} else if (lookup_flag_data_by_name(*argv)) {
+			/*参数为falgs关键字时*/
 			const struct ifa_flag_data_t* flag_data = lookup_flag_data_by_name(*argv);
 			if (flag_data->readonly) {
+				/*用户空间不得配置，忽略*/
 				fprintf(stderr, "Warning: %s option is not mutable from userspace\n", flag_data->name);
 			} else if (flag_data->v6only && req.ifa.ifa_family != AF_INET6) {
+				/*此参数为ipv6独有，忽略*/
 				fprintf(stderr, "Warning: %s option can be set only for IPv6 addresses\n", flag_data->name);
 			} else {
+				/*按参数设置flags*/
 				ifa_flags |= flag_data->mask;
 			}
 		} else {
@@ -2542,6 +2552,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 	if (!scoped && cmd != RTM_DELADDR)
 		req.ifa.ifa_scope = default_scope(&lcl);
 
+	/*设置设备ifindex*/
 	req.ifa.ifa_index = ll_name_to_index(d);
 	if (!req.ifa.ifa_index)
 		return nodev(d);
@@ -2554,6 +2565,7 @@ static int ipaddr_modify(int cmd, int flags, int argc, char **argv)
 			return -1;
 		}
 		if (valid_lft < preferred_lft) {
+			/*valid life time需要大于pref life time*/
 			fprintf(stderr, "preferred_lft is greater than valid_lft\n");
 			return -1;
 		}

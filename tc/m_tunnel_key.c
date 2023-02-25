@@ -49,7 +49,7 @@ static int tunnel_key_parse_ip_addr(const char *str, int addr4_type,
 	if (ret)
 		return ret;
 
-	addattr_l(n, MAX_MSG, addr.family == AF_INET ? addr4_type : addr6_type,
+	addattr_l(n, MAX_MSG, addr.family == AF_INET ? addr4_type : addr6_type/*地址类型*/,
 		  addr.data, addr.bytelen);
 
 	return 0;
@@ -230,6 +230,7 @@ static int tunnel_key_parse_vxlan_opt(char *str, struct nlmsghdr *n)
 	nest = addattr_nest(n, MAX_MSG,
 			    TCA_TUNNEL_KEY_ENC_OPTS_VXLAN | NLA_F_NESTED);
 
+	/*解析vxlan_gbp*/
 	ret = tunnel_key_parse_u32(str, 0,
 				   TCA_TUNNEL_KEY_ENC_OPT_VXLAN_GBP, n);
 	if (ret)
@@ -327,15 +328,19 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 	int has_dst_ip = 0;
 	int csum = 1;
 
+	/*必须配置参数tunnel_key*/
 	if (matches(*argv, "tunnel_key") != 0)
 		return -1;
 
+	/*添加type为tca_id,且最大长度MAX_MSG*/
 	tail = addattr_nest(n, MAX_MSG, tca_id);
 
+	/*跳过tunnel_key*/
 	NEXT_ARG();
 
 	while (argc > 0) {
 		if (matches(*argv, "unset") == 0) {
+		    /*unset关键字出现时，action不得设置*/
 			if (action) {
 				fprintf(stderr, "unexpected \"%s\" - action already specified\n",
 					*argv);
@@ -344,6 +349,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 			}
 			action = TCA_TUNNEL_KEY_ACT_RELEASE;
 		} else if (matches(*argv, "set") == 0) {
+		    /*set关键字出现时，action不得设置*/
 			if (action) {
 				fprintf(stderr, "unexpected \"%s\" - action already specified\n",
 					*argv);
@@ -353,6 +359,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 			action = TCA_TUNNEL_KEY_ACT_SET;
 		} else if (matches(*argv, "src_ip") == 0) {
 			NEXT_ARG();
+			/*写入源地址*/
 			ret = tunnel_key_parse_ip_addr(*argv,
 						       TCA_TUNNEL_KEY_ENC_IPV4_SRC,
 						       TCA_TUNNEL_KEY_ENC_IPV6_SRC,
@@ -364,6 +371,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 			has_src_ip = 1;
 		} else if (matches(*argv, "dst_ip") == 0) {
 			NEXT_ARG();
+			/*写入目的地址*/
 			ret = tunnel_key_parse_ip_addr(*argv,
 						       TCA_TUNNEL_KEY_ENC_IPV4_DST,
 						       TCA_TUNNEL_KEY_ENC_IPV6_DST,
@@ -374,6 +382,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 			}
 			has_dst_ip = 1;
 		} else if (matches(*argv, "id") == 0) {
+		    /*设置tunnel key*/
 			NEXT_ARG();
 			ret = tunnel_key_parse_key_id(*argv, TCA_TUNNEL_KEY_ENC_KEY_ID, n);
 			if (ret < 0) {
@@ -381,6 +390,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "dst_port") == 0) {
+		    /*设置目的port*/
 			NEXT_ARG();
 			ret = tunnel_key_parse_dst_port(*argv,
 							TCA_TUNNEL_KEY_ENC_DST_PORT, n);
@@ -389,6 +399,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "geneve_opts") == 0) {
+		    /*设置geneve选项*/
 			NEXT_ARG();
 
 			if (tunnel_key_parse_geneve_opts(*argv, n)) {
@@ -396,6 +407,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "vxlan_opts") == 0) {
+		    /*设置vxlan选项*/
 			NEXT_ARG();
 
 			if (tunnel_key_parse_vxlan_opt(*argv, n)) {
@@ -403,6 +415,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "erspan_opts") == 0) {
+		    /*设置erspan选项*/
 			NEXT_ARG();
 
 			if (tunnel_key_parse_erspan_opt(*argv, n)) {
@@ -410,6 +423,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "tos") == 0) {
+		    /*配置tos*/
 			NEXT_ARG();
 			ret = tunnel_key_parse_tos_ttl(*argv,
 							TCA_TUNNEL_KEY_ENC_TOS, n);
@@ -418,6 +432,7 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "ttl") == 0) {
+		    /*配置ttl*/
 			NEXT_ARG();
 			ret = tunnel_key_parse_tos_ttl(*argv,
 							TCA_TUNNEL_KEY_ENC_TTL, n);
@@ -426,10 +441,13 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 				return -1;
 			}
 		} else if (matches(*argv, "csum") == 0) {
+		    /*执明需要做checksum*/
 			csum = 1;
 		} else if (matches(*argv, "nocsum") == 0) {
+		    /*指明不必做csum*/
 			csum = 0;
 		} else if (matches(*argv, "help") == 0) {
+		    /*显示帮助*/
 			usage();
 		} else {
 			break;
@@ -437,14 +455,16 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 		NEXT_ARG_FWD();
 	}
 
-	addattr8(n, MAX_MSG, TCA_TUNNEL_KEY_NO_CSUM, !csum);
+	addattr8(n, MAX_MSG, TCA_TUNNEL_KEY_NO_CSUM, !csum);/*指明是否不做csum*/
 
+	/*解析控制字段*/
 	parse_action_control_dflt(&argc, &argv, &parm.action,
-				  false, TC_ACT_PIPE);
+				  false/*拒绝数字格式的control*/, TC_ACT_PIPE);
 
 	if (argc) {
 		if (matches(*argv, "index") == 0) {
 			NEXT_ARG();
+			/*解析用户指定的index*/
 			if (get_u32(&parm.index, *argv, 10)) {
 				fprintf(stderr, "tunnel_key: Illegal \"index\"\n");
 				return -1;
@@ -456,12 +476,16 @@ static int parse_tunnel_key(struct action_util *a, int *argc_p, char ***argv_p,
 
 	if (action == TCA_TUNNEL_KEY_ACT_SET &&
 	    (!has_src_ip || !has_dst_ip)) {
+	    /*encap情况下，必须提供src ip,dst ip*/
 		fprintf(stderr, "set needs tunnel_key parameters\n");
 		explain();
 		return -1;
 	}
 
+	/*指明action*/
 	parm.t_action = action;
+
+	/*添加tunnel key 参数*/
 	addattr_l(n, MAX_MSG, TCA_TUNNEL_KEY_PARMS, &parm, sizeof(parm));
 	addattr_nest_end(n, tail);
 

@@ -396,6 +396,7 @@ void ll_init_map(struct rtnl_handle *rth)
 	static int initialized;
 
 	if (initialized)
+		/*之前已调用过，则退出*/
 		return;
 
 	if (rtnl_linkdump_req(rth, AF_UNSPEC) < 0) {

@@ -678,6 +678,7 @@ static int flower_port_attr_type(__u8 ip_proto, enum flower_endpoint endpoint)
 		return -1;
 }
 
+static int flower_port_attr_mask_type(__u8 ip_proto,
 				      enum flower_endpoint endpoint)
 {
 	switch (ip_proto) {
@@ -1519,6 +1520,7 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 				return -1;
 			}
 		} else if (matches(*argv, "verbose") == 0) {
+		    /*指明采用verbose输出*/
 			flags |= TCA_CLS_FLAGS_VERBOSE;
 		} else if (matches(*argv, "skip_hw") == 0) {
 			//指明skip hardware

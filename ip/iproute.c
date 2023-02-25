@@ -1495,13 +1495,14 @@ static int iproute_modify(int cmd, unsigned int flags, int argc, char **argv)
 				invarg("\"pref\" value is invalid\n", *argv);
 			addattr8(&req.n, sizeof(req), RTA_PREF, pref);
 		} else if (strcmp(*argv, "encap") == 0) {
-		    /*路由匹配进行encap action*/
+		    /*配置路由匹配后进行的encap action*/
 			char buf[1024];
 			struct rtattr *rta = (void *)buf;
 
 			rta->rta_type = RTA_ENCAP;
 			rta->rta_len = RTA_LENGTH(0);
 
+			/*轻量型隧道内容解析*/
 			lwt_parse_encap(rta, sizeof(buf), &argc, &argv,
 					RTA_ENCAP, RTA_ENCAP_TYPE);
 
@@ -2408,6 +2409,7 @@ int do_iproute(int argc, char **argv)
 	    || matches(*argv, "lst") == 0)
 		return iproute_list_flush_or_save(argc-1, argv+1, IPROUTE_LIST);
 	if (matches(*argv, "get") == 0)
+	    /*路由查询*/
 		return iproute_get(argc-1, argv+1);
 	if (matches(*argv, "flush") == 0)
 		return iproute_list_flush_or_save(argc-1, argv+1, IPROUTE_FLUSH);

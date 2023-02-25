@@ -68,13 +68,13 @@ enum bpf_mode {
 struct bpf_cfg_in {
 	const char *object;/*要加载的文件名*/
 	const char *section;/*要提取的段名称*/
-	const char *uds;
-	enum bpf_prog_type type;/*bpf程序类型*/
+	const char *uds;/*用户配置的uds name*/
+	enum bpf_prog_type type;/*bpf程序类型，例如BPF_PROG_TYPE_LWT_SEG6LOCAL*/
 	enum bpf_mode mode;/*bpf文件格式*/
 	__u32 ifindex;
-	bool verbose;
-	int argc;
-	char **argv;
+	bool verbose;/*是否冗余输出*/
+	int argc;/*用户输入的参数数目*/
+	char **argv;/*用户输入的参数列表*/
 	struct sock_filter opcodes[BPF_MAXINSNS];
 	union {
 		int n_opcodes;

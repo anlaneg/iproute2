@@ -179,6 +179,7 @@ struct tc_cnt {
 #define tc_gen \
 	__u32                 index; \
 	__u32                 capab; \
+	/*控制动作，例如goto,jump*/\
 	int                   action; \
 	int                   refcnt; \
 	int                   bindcnt

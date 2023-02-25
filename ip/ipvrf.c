@@ -196,12 +196,14 @@ out:
 
 static int ipvrf_get_netns(char *netns, int len)
 {
+    /*取当前进程的netns名称*/
 	if (netns_identify_pid("self", netns, len-3)) {
 		fprintf(stderr, "Failed to get name of network namespace: %s\n",
 			strerror(errno));
 		return -1;
 	}
 
+	/*在netns中补加-ns后缀*/
 	if (*netns != '\0')
 		strcat(netns, "-ns");
 
@@ -359,6 +361,7 @@ static int vrf_switch(const char *name)
 	int rc = -1, len, fd = -1;
 
 	if (strcmp(name, "default")) {
+	    /*非default情况，按名称取ifindex*/
 		ifindex = name_is_vrf(name);
 		if (!ifindex) {
 			fprintf(stderr, "Invalid VRF name\n");
@@ -442,6 +445,7 @@ out:
 	return rc;
 }
 
+/*ipvrf exec调用之前，调用此函数*/
 static int do_switch(void *arg)
 {
 	char *vrf = arg;
@@ -460,7 +464,7 @@ static int ipvrf_exec(int argc, char **argv)
 		return -1;
 	}
 
-	return -cmd_exec(argv[1], argv + 1, !!batch_mode, do_switch, argv[0]);
+	return -cmd_exec(argv[1]/*命令id*/, argv + 1/*命令参数*/, !!batch_mode, do_switch, argv[0]);
 }
 
 /* reset VRF association of current process to default VRF;
@@ -582,7 +586,7 @@ static int ipvrf_show(int argc, char **argv)
 
 	vrf_filter.kind = "vrf";
 
-	/*显示用法*/
+	/*参数大于1，显示用法，并退出*/
 	if (argc > 1)
 		usage();
 
@@ -599,6 +603,7 @@ static int ipvrf_show(int argc, char **argv)
 		return 0;
 	}
 
+	/*显示vrf link*/
 	if (ip_link_list(ipvrf_filter_req, &linfo) == 0) {
 		struct nlmsg_list *l;
 		unsigned nvrf = 0;
@@ -625,9 +630,11 @@ static int ipvrf_show(int argc, char **argv)
 	return rc;
 }
 
+/*ip vrf命令*/
 int do_ipvrf(int argc, char **argv)
 {
 	if (argc == 0)
+	    /*参数为0，显示vrf*/
 		return ipvrf_show(0, NULL);
 
 	if (matches(*argv, "identify") == 0)
@@ -636,9 +643,11 @@ int do_ipvrf(int argc, char **argv)
 	if (matches(*argv, "pids") == 0)
 		return ipvrf_pids(argc-1, argv+1);
 
+	/*ip vrf exec命令处理*/
 	if (matches(*argv, "exec") == 0)
 		return ipvrf_exec(argc-1, argv+1);
 
+	/*显示vrf link*/
 	if (matches(*argv, "show") == 0 ||
 	    matches(*argv, "lst") == 0 ||
 	    matches(*argv, "list") == 0)

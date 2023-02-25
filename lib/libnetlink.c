@@ -259,7 +259,7 @@ err:
 
 int rtnl_open(struct rtnl_handle *rth, unsigned int subscriptions)
 {
-	//创建netlink的NETLINK_ROUTE
+	//创建NETLINK_ROUTE的netlink socket
 	return rtnl_open_byproto(rth, subscriptions, NETLINK_ROUTE);
 }
 
@@ -1135,12 +1135,12 @@ static int __rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n,
 		.iov_len = n->nlmsg_len
 	};
 
-	return __rtnl_talk_iov(rtnl, &iov, 1, answer, show_rtnl_err, errfn);
+	return __rtnl_talk_iov(rtnl, &iov/*netlink请求内容*/, 1, answer, show_rtnl_err, errfn);
 }
 
 //执行netlink请求
 int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n,
-	      struct nlmsghdr **answer)
+	      struct nlmsghdr **answer/*响应数据*/)
 {
 	return __rtnl_talk(rtnl, n, answer, true, NULL);
 }
@@ -1392,8 +1392,9 @@ struct rtattr *addattr_nest(struct nlmsghdr *n, int maxlen, int type)
 {
 	struct rtattr *nest = NLMSG_TAIL(n);
 
+	/*添加长度为maxlen的type,负载内容为NULL，且长度为0*/
 	addattr_l(n, maxlen, type, NULL, 0);
-	return nest;
+	return nest;/*返回尾指针*/
 }
 
 int addattr_nest_end(struct nlmsghdr *n, struct rtattr *nest)

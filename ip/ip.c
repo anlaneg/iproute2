@@ -87,7 +87,9 @@ static int do_help(int argc, char **argv)
 }
 
 static const struct cmd {
+    /*命令名称*/
 	const char *cmd;
+	/*命令函数处理*/
 	int (*func)(int argc, char **argv);
 } cmds[] = {
 	{ "address",	do_ipaddr },//地址配置相关的命令
@@ -99,7 +101,7 @@ static const struct cmd {
 	{ "neighbour",	do_ipneigh },
 	{ "ntable",	do_ipntable },
 	{ "ntbl",	do_ipntable },
-	{ "link",	do_iplink },
+	{ "link",	do_iplink },/*link相关操作*/
 	{ "l2tp",	do_ipl2tp },
 	{ "fou",	do_ipfou },
 	{ "ila",	do_ipila },/*ila相关命令*/
@@ -115,7 +117,7 @@ static const struct cmd {
 	{ "xfrm",	do_xfrm },
 	{ "mroute",	do_multiroute },
 	{ "mrule",	do_multirule },
-	{ "netns",	do_netns },
+	{ "netns",	do_netns },/*netnamespace相关操作*/
 	{ "netconf",	do_ipnetconf },
 	{ "vrf",	do_ipvrf},/*vrf相关的命令*/
 	{ "sr",		do_seg6 },/*sr相关的命令*/
@@ -127,7 +129,7 @@ static const struct cmd {
 };
 
 //如果argv0与cmd匹配，则执行cmd对应的function
-static int do_cmd(const char *argv0, int argc, char **argv, bool final)
+static int do_cmd(const char *argv0/*命令名称*/, int argc, char **argv, bool final)
 {
 	const struct cmd *c;
 
@@ -137,6 +139,7 @@ static int do_cmd(const char *argv0, int argc, char **argv, bool final)
 	}
 
 	if (final)
+	    /*如果未找到相应的cmd,final如果为true,则报错*/
 		fprintf(stderr, "Object \"%s\" is unknown, try \"ip help\".\n", argv0);
 	return EXIT_FAILURE;
 }
@@ -166,6 +169,7 @@ static int batch(const char *name)
 	return ret;
 }
 
+/*ip命令入口*/
 int main(int argc, char **argv)
 {
 	const char *libbpf_version;
@@ -185,6 +189,7 @@ int main(int argc, char **argv)
 			strcmp(argv[2], "exec") != 0)
 		drop_cap();
 
+	/*取程序名称（不含路径）*/
 	basename = strrchr(argv[0], '/');
 	if (basename == NULL)
 		basename = argv[0];
@@ -195,13 +200,17 @@ int main(int argc, char **argv)
 		char *opt = argv[1];
 
 		if (strcmp(opt, "--") == 0) {
+		    /*遇到'--',选项解析结束*/
 			argc--; argv++;
 			break;
 		}
 		if (opt[0] != '-')
+		    /*遇到非选项，选项解析结束*/
 			break;
 		if (opt[1] == '-')
+		    /*遇到'-'符，消耗掉第一个'-'符*/
 			opt++;
+		/*开始处理长选项*/
 		if (matches(opt, "-loops") == 0) {
 			argc--;
 			argv++;
@@ -216,18 +225,23 @@ int main(int argc, char **argv)
 			if (strcmp(argv[1], "help") == 0)
 				usage();
 			else
+			    /*按字符串内容解析preferred_family*/
 				preferred_family = read_family(argv[1]);
 			if (preferred_family == AF_UNSPEC)
 				invarg("invalid protocol family", argv[1]);
 		} else if (strcmp(opt, "-4") == 0) {
+			/*ipv4协议*/
 			preferred_family = AF_INET;
 		} else if (strcmp(opt, "-6") == 0) {
+			/*ipv6协议*/
 			preferred_family = AF_INET6;
 		} else if (strcmp(opt, "-0") == 0) {
 			preferred_family = AF_PACKET;
 		} else if (strcmp(opt, "-M") == 0) {
+			/*mpls协议*/
 			preferred_family = AF_MPLS;
 		} else if (strcmp(opt, "-B") == 0) {
+			/*linux bridge*/
 			preferred_family = AF_BRIDGE;
 		} else if (matches(opt, "-human") == 0 ||
 			   matches(opt, "-human-readable") == 0) {
@@ -249,6 +263,7 @@ int main(int argc, char **argv)
 			++timestamp;
 			++timestamp_short;
 		} else if (matches(opt, "-Version") == 0) {
+			/*显示版本号*/
 			printf("ip utility, iproute2-%s", version);
 			libbpf_version = get_libbpf_version();
 			if (libbpf_version)
@@ -258,6 +273,7 @@ int main(int argc, char **argv)
 		} else if (matches(opt, "-force") == 0) {
 			++force;
 		} else if (matches(opt, "-batch") == 0) {
+		    /*指定了文件，通过batch方式进行处理*/
 			argc--;
 			argv++;
 			if (argc <= 1)
@@ -286,6 +302,7 @@ int main(int argc, char **argv)
 		} else if (matches(opt, "-help") == 0) {
 			usage();
 		} else if (matches(opt, "-netns") == 0) {
+		    /*遇到--netns指明的netns,切换到相应的netns*/
 			NEXT_ARG();
 			if (netns_switch(argv[1]))
 				exit(-1);
@@ -307,6 +324,7 @@ int main(int argc, char **argv)
 
 	check_enable_color(color, json);
 
+	/*按batch进行处理*/
 	if (batch_file)
 		return batch(batch_file);
 
@@ -316,12 +334,14 @@ int main(int argc, char **argv)
 	rtnl_set_strict_dump(&rth);
 
 	if (strlen(basename) > 2) {
+	    /*程序名称不是'ip',而是'xx$cmd'格式，跳过前两个字符，直接调用cmd*/
 		int ret = do_cmd(basename+2, argc, argv, false);
 		if (ret != EXIT_FAILURE)
 			return ret;
 	}
 
 	if (argc > 1)
+	    /*程序名称为'ip'类，将第二个参数做为cmd进行处理*/
 		return do_cmd(argv[1], argc-1, argv+1, true);
 
 	rtnl_close(&rth);
