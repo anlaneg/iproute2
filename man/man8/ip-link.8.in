@@ -49,7 +49,7 @@ ip-link \- network device configuration
 .IR BYTES " ]"
 .br
 .RB "[ " netns " {"
-.IR PID " | " NETNSNAME " } ]"
+.IR PID " | " NETNSNAME " | " NETNSFILE " } ]"
 .br
 .BI type " TYPE"
 .RI "[ " ARGS " ]"
@@ -118,7 +118,7 @@ ip-link \- network device configuration
 .IR MTU " ]"
 .br
 .RB "[ " netns " {"
-.IR PID " | " NETNSNAME " } ]"
+.IR PID " | " NETNSNAME " | " NETNSFILE " } ]"
 .br
 .RB "[ " link-netnsid
 .IR ID " ]"
@@ -465,8 +465,15 @@ specifies the desired index of the new virtual device. The link
 creation fails, if the index is busy.
 
 .TP
-.BI netns " { PID | NAME } "
-specifies the desired network namespace to create interface in.
+.B netns
+.RI "{ " PID " | " NETNSNAME " | " NETNSFILE " }"
+.br
+create the device in the network namespace associated with process
+.IR "PID " or
+the name
+.IR "NETNSNAME " or
+the file
+.IR "NETNSFILE".
 
 .TP
 VLAN Type Support
@@ -627,6 +634,8 @@ the following additional arguments are supported:
 ] [
 .RB [ no ] udp6zerocsumrx
 ] [
+.RB [ no ] localbypass
+] [
 .BI ageing " SECONDS "
 ] [
 .BI maxaddress " NUMBER "
@@ -734,6 +743,14 @@ are entered into the VXLAN device forwarding database.
 .sp
 .RB [ no ] udp6zerocsumrx
 - allow incoming UDP packets over IPv6 with zero checksum field.
+
+.sp
+.RB [ no ] localbypass
+- if FDB destination is local, with nolocalbypass set, forward encapsulated
+packets to the userspace network stack. If there is a userspace process
+listening for these packets, it will have a chance to process them. If
+localbypass is active (default), bypass the kernel network stack and
+inject the packets into the target VXLAN device, assuming one exists.
 
 .sp
 .BI ageing " SECONDS"
@@ -1479,6 +1496,7 @@ the following additional arguments are supported:
 .BR mode " { " private " | " vepa " | " bridge " | " passthru
 .RB " [ " nopromisc " ] | " source " [ " nodst " ] } "
 .RB " [ " bcqueuelen " { " LENGTH " } ] "
+.RB " [ " bclim " " LIMIT " ] "
 
 .in +8
 .sp
@@ -1537,6 +1555,13 @@ will be the maximum length that any macvlan interface has requested.
 When listing device parameters both the bcqueuelen parameter
 as well as the actual used bcqueuelen are listed to better help
 the user understand the setting.
+
+.BR bclim " " LIMIT
+- Set the threshold for broadcast queueing.
+.BR LIMIT " must be a 32-bit integer."
+Setting this to -1 disables broadcast queueing altogether.  Otherwise
+a multicast address will be queued as broadcast if the number of devices
+using it is greater than the given value.
 .in -8
 
 .TP
@@ -2188,10 +2213,15 @@ the interface is
 .IR "POINTOPOINT" .
 
 .TP
-.BI netns " NETNSNAME " \fR| " PID"
-move the device to the network namespace associated with name
+.B netns
+.RI "{ " PID " | " NETNSNAME " | " NETNSFILE " }"
+.br
+move the device to the network namespace associated with process
+.IR "PID " or
+the name
 .IR "NETNSNAME " or
-.RI process " PID".
+the file
+.IR "NETNSFILE".
 
 Some devices are not allowed to change network namespace: loopback, bridge,
 wireless. These are network namespace local devices. In such case
@@ -2220,8 +2250,9 @@ give the device a symbolic name for easy reference.
 .TP
 .BI group " GROUP"
 specify the group the device belongs to.
-The available groups are listed in file
-.BR "@SYSCONFDIR@/group" .
+The available groups are listed in
+.BR "@SYSCONF_USR_DIR@/group" or
+.BR "@SYSCONF_ETC_DIR@/group" (has precedence if exists).
 
 .TP
 .BI vf " NUM"
@@ -2497,6 +2528,8 @@ the following additional arguments are supported:
 ] [
 .BR neigh_suppress " { " on " | " off " }"
 ] [
+.BR neigh_vlan_suppress " { " on " | " off " }"
+] [
 .BR vlan_tunnel " { " on " | " off " }"
 ] [
 .BR isolated " { " on " | " off " }"
@@ -2602,6 +2635,12 @@ this port).
 - controls whether neigh discovery (arp and nd) proxy and suppression
 is enabled on the port. By default this flag is off.
 
+.BR neigh_vlan_suppress " { " on " | " off " }"
+- controls whether per-VLAN neigh discovery (arp and nd) proxy and suppression
+is enabled on the port. When on, the \fBbridge link\fR option
+\fBneigh_suppress\fR has no effect and the per-VLAN state is set using the
+\fBbridge vlan\fR option \fBneigh_suppress\fR. By default this flag is off.
+
 .BR vlan_tunnel " { " on " | " off " }"
 - controls whether vlan to tunnel mapping is enabled on the port. By
 default this flag is off.
@@ -2699,6 +2738,9 @@ Update the broadcast/multicast queue length.
 [
 .BI bcqueuelen "  LENGTH  "
 ]
+[
+.BI bclim " LIMIT "
+]
 
 .in +8
 .BI bcqueuelen " LENGTH "
@@ -2712,6 +2754,13 @@ will be the maximum length that any macvlan interface has requested.
 When listing device parameters both the bcqueuelen parameter
 as well as the actual used bcqueuelen are listed to better help
 the user understand the setting.
+
+.BI bclim " LIMIT "
+- Set the threshold for broadcast queueing.
+.IR LIMIT " must be a 32-bit integer."
+Setting this to -1 disables broadcast queueing altogether.  Otherwise
+a multicast address will be queued as broadcast if the number of devices
+using it is greater than the given value.
 .in -8
 
 .TP
@@ -2803,9 +2852,10 @@ specifies which help of link type to display.
 
 .SS
 .I GROUP
-may be a number or a string from the file
-.B @SYSCONFDIR@/group
-which can be manually filled.
+may be a number or a string from
+.B @SYSCONF_USR_DIR@/group or
+.B @SYSCONF_ETC_DIR@/group
+which can be manually filled and has precedence if exists.
 
 .SH "EXAMPLES"
 .PP

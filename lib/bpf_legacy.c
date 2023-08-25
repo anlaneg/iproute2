@@ -2963,7 +2963,7 @@ static bool bpf_pinning_reserved(uint32_t pinning)
 }
 
 /*ctx->ht初始化*/
-static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
+static int bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 {
 	struct bpf_hash_entry *entry;
 	char subpath[PATH_MAX] = {};
@@ -2974,7 +2974,7 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 	/*文件不存在，退出*/
 	fp = fopen(db_file, "r");
 	if (!fp)
-		return;
+		return -errno;
 
 	while ((ret = bpf_read_pin_mapping(fp, &pinning, subpath))) {
 		if (ret == -1) {
@@ -2982,7 +2982,7 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 			fprintf(stderr, "Database %s is corrupted at: %s\n",
 				db_file, subpath);
 			fclose(fp);
-			return;
+			return -EINVAL;
 		}
 
 		if (bpf_pinning_reserved(pinning)) {
@@ -3012,6 +3012,8 @@ static void bpf_hash_init(struct bpf_elf_ctx *ctx, const char *db_file)
 	}
 
 	fclose(fp);
+
+	return 0;
 }
 
 static void bpf_hash_destroy(struct bpf_elf_ctx *ctx)
@@ -3158,7 +3160,9 @@ static int bpf_elf_ctx_init(struct bpf_elf_ctx *ctx, const char *pathname,
 
 	bpf_save_finfo(ctx);
 	/*加载bpf pinning映射关系*/
-	bpf_hash_init(ctx, CONFDIR "/bpf_pinning");
+	bpf_hash_init(ctx, CONF_ETC_DIR "/bpf_pinning");
+	if (ret == -ENOENT)
+		ret = bpf_hash_init(ctx, CONF_USR_DIR "/bpf_pinning");
 
 	return 0;
 out_free:

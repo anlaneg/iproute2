@@ -28,7 +28,8 @@
 
 static struct db_names *cls_names;
 
-#define NAMES_DB "/etc/iproute2/tc_cls"
+#define NAMES_DB_USR CONF_USR_DIR "/tc_cls"
+#define NAMES_DB_ETC CONF_ETC_DIR "/tc_cls"
 
 int cls_names_init(char *path)
 {
@@ -38,11 +39,18 @@ int cls_names_init(char *path)
 	if (!cls_names)
 		return -1;
 
-	ret = db_names_load(cls_names, path ?: NAMES_DB);
-	if (ret == -ENOENT && path) {
-		fprintf(stderr, "Can't open class names file: %s\n", path);
-		return -1;
+	if (path) {
+		ret = db_names_load(cls_names, path);
+		if (ret == -ENOENT) {
+			fprintf(stderr, "Can't open class names file: %s\n", path);
+			return -1;
+		}
 	}
+
+	ret = db_names_load(cls_names, NAMES_DB_ETC);
+	if (ret == -ENOENT)
+		ret = db_names_load(cls_names, NAMES_DB_USR);
+
 	if (ret) {
 		db_names_free(cls_names);
 		cls_names = NULL;
@@ -491,7 +499,7 @@ static int parse_action_control_slash_spaces(int *argc_p, char ***argv_p,
 {
 	int argc = *argc_p;
 	char **argv = *argv_p;
-	int result1 = -1, result2;
+	int result1 = -1, result2 = -1;
 	int *result_p = &result1;
 	int ok = 0;
 	int ret;
@@ -504,7 +512,7 @@ static int parse_action_control_slash_spaces(int *argc_p, char ***argv_p,
 			result_p = &result2;
 			NEXT_ARG();
 			/* fall-through */
-		case 0: 
+		case 0:
 			ret = parse_action_control(&argc, &argv,
 						   result_p, allow_num);
 			if (ret)

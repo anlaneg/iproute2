@@ -63,7 +63,7 @@ void iplink_usage(void)
 			"		    [ mtu MTU ] [index IDX ]\n"
 			"		    [ numtxqueues QUEUE_COUNT ]\n"
 			"		    [ numrxqueues QUEUE_COUNT ]\n"
-			"		    [ netns { PID | NAME } ]\n"
+			"		    [ netns { PID | NETNSNAME | NETNSFILE } ]\n"
 			"		    type TYPE [ ARGS ]\n"
 			"\n"
 			"	ip link delete { DEVICE | dev DEVICE | group DEVGROUP } type TYPE [ ARGS ]\n"
@@ -88,7 +88,7 @@ void iplink_usage(void)
 		"		[ address LLADDR ]\n"
 		"		[ broadcast LLADDR ]\n"
 		"		[ mtu MTU ]\n"
-		"		[ netns { PID | NAME } ]\n"
+		"		[ netns { PID | NETNSNAME | NETNSFILE } ]\n"
 		"		[ link-netns NAME | link-netnsid ID ]\n"
 		"		[ alias NAME ]\n"
 		"		[ vf NUM [ mac LLADDR ]\n"
@@ -1131,13 +1131,12 @@ static int iplink_modify(int cmd, unsigned int flags, int argc, char **argv)
 		argc -= ret;
 		argv += ret;
 
-		if (lu && argc) {
+		if (lu && lu->parse_opt && argc) {
 			struct rtattr *data;
 
 			data = addattr_nest(&req.n, sizeof(req), iflatype);
 
-			if (lu->parse_opt &&
-			    lu->parse_opt(lu, argc, argv, &req.n))
+			if (lu->parse_opt(lu, argc, argv, &req.n))
 				return -1;
 
 			addattr_nest_end(&req.n, data);
@@ -1185,6 +1184,9 @@ int iplink_get(char *name, __u32 filt_mask)
 			  !check_ifname(name) ? IFLA_IFNAME : IFLA_ALT_IFNAME,
 			  name, strlen(name) + 1);
 	}
+
+	if (!show_stats)
+		filt_mask |= RTEXT_FILTER_SKIP_STATS;
 	addattr32(&req.n, sizeof(req), IFLA_EXT_MASK, filt_mask);
 
 	if (rtnl_talk(&rth, &req.n, &answer) < 0)
@@ -1648,7 +1650,7 @@ static void print_af_stats_attr(FILE *fp, int ifindex, struct rtattr *attr)
 		if (!if_printed) {
 			print_uint(PRINT_ANY, "ifindex",
 				   "%u:", ifindex);
-			print_color_string(PRINT_ANY, COLOR_IFNAME, 
+			print_color_string(PRINT_ANY, COLOR_IFNAME,
 					   "ifname", "%s",
 					   ll_index_to_name(ifindex));
 			print_nl();

@@ -205,6 +205,14 @@ struct ifname_map {
 	char *ifname;
 };
 
+static void ifname_map_free(struct ifname_map *ifname_map)
+{
+	free(ifname_map->ifname);
+	free(ifname_map->dev_name);
+	free(ifname_map->bus_name);
+	free(ifname_map);
+}
+
 static struct ifname_map *ifname_map_alloc(const char *bus_name,
 					   const char *dev_name,
 					   uint32_t port_index,
@@ -221,21 +229,10 @@ static struct ifname_map *ifname_map_alloc(const char *bus_name,
 	ifname_map->ifname = strdup(ifname);
 	if (!ifname_map->bus_name || !ifname_map->dev_name ||
 	    !ifname_map->ifname) {
-		free(ifname_map->ifname);
-		free(ifname_map->dev_name);
-		free(ifname_map->bus_name);
-		free(ifname_map);
+		ifname_map_free(ifname_map);
 		return NULL;
 	}
 	return ifname_map;
-}
-
-static void ifname_map_free(struct ifname_map *ifname_map)
-{
-	free(ifname_map->ifname);
-	free(ifname_map->dev_name);
-	free(ifname_map->bus_name);
-	free(ifname_map);
 }
 
 static int ifname_map_update(struct ifname_map *ifname_map, const char *ifname)
@@ -933,6 +930,7 @@ static void ifname_map_init(struct dl *dl)
 
 static int ifname_map_load(struct dl *dl, const char *ifname)
 {
+	struct mnlu_gen_socket nlg_map;
 	struct nlmsghdr *nlh;
 	int err;
 
@@ -945,15 +943,20 @@ static int ifname_map_load(struct dl *dl, const char *ifname)
 		 */
 	}
 
-	nlh = mnlu_gen_socket_cmd_prepare(&dl->nlg, DEVLINK_CMD_PORT_GET,
+	err = mnlu_gen_socket_open(&nlg_map, DEVLINK_GENL_NAME,
+				   DEVLINK_GENL_VERSION);
+	if (err)
+		return err;
+
+	nlh = mnlu_gen_socket_cmd_prepare(&nlg_map, DEVLINK_CMD_PORT_GET,
 			       NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP);
 
-	err = mnlu_gen_socket_sndrcv(&dl->nlg, nlh, ifname_map_cb, dl);
-	if (err) {
+	err = mnlu_gen_socket_sndrcv(&nlg_map, nlh, ifname_map_cb, dl);
+	if (err)
 		ifname_map_fini(dl);
-		return err;
-	}
-	return 0;
+
+	mnlu_gen_socket_close(&nlg_map);
+	return err;
 }
 
 static int ifname_map_check_load(struct dl *dl, const char *ifname)
@@ -4900,7 +4903,7 @@ static int cmd_port_param_show(struct dl *dl)
 
 static void cmd_port_function_help(void)
 {
-	pr_err("Usage: devlink port function set DEV/PORT_INDEX [ hw_addr ADDR ] [ state STATE ]\n");
+	pr_err("Usage: devlink port function set DEV/PORT_INDEX [ hw_addr ADDR ] [ state { active | inactive } ]\n");
 	pr_err("                      [ roce { enable | disable } ] [ migratable { enable | disable } ]\n");
 	pr_err("       devlink port function rate { help | show | add | del | set }\n");
 }

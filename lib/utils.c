@@ -96,7 +96,7 @@ out:
 	return -1;
 }
 
-int get_hex(char c)
+static int get_hex(char c)
 {
 	if (c >= 'A' && c <= 'F')
 		return c - 'A' + 10;
@@ -1026,9 +1026,8 @@ const char *rt_addr_n2a_r(int af, int len,
 			return inet_ntop(AF_INET6, &sa->sin6.sin6_addr,
 					 buf, buflen);
 		}
-
-		/* fallthrough */
 	}
+		/* fallthrough */
 	default:
 		return "???";
 	}
@@ -1336,7 +1335,7 @@ unsigned int print_name_and_link(const char *fmt,
 int cmdlineno;
 
 /* Like glibc getline but handle continuation lines and comments */
-ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
+static ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 {
 	ssize_t cc;
 	char *cp;
@@ -1383,7 +1382,7 @@ ssize_t getcmdline(char **linep, size_t *lenp, FILE *in)
 }
 
 /* split command line into argument vector */
-int makeargs(char *line, char *argv[], int maxargs)
+static int makeargs(char *line, char *argv[], int maxargs)
 {
 	static const char ws[] = " \t\r\n";
 	char *cp = line;
@@ -1754,8 +1753,7 @@ int do_batch(const char *name, bool force,
 		}
 	}
 
-	if (line)
-		free(line);
+	free(line);
 
 	return ret;
 }

@@ -33,7 +33,7 @@ static void usage(void)
 	fprintf(stderr,
 		"Usage: bridge vni { add | del } vni VNI\n"
 		"		[ { group | remote } IP_ADDRESS ]\n"
-	        "		[ dev DEV ]\n"
+		"		[ dev DEV ]\n"
 		"       bridge vni { show }\n"
 		"\n"
 		"Where:	VNI	:= 0-16777215\n"
@@ -138,14 +138,8 @@ static int vni_modify(int cmd, int argc, char **argv)
 		return -1;
 	}
 
-	if (!vni && group_present) {
-		fprintf(stderr, "Group can only be specified with a vni\n");
-		return -1;
-	}
-
-	if (vni)
-		parse_vni_filter(vni, &req.n, sizeof(req),
-				 (group_present ? &daddr : NULL));
+	parse_vni_filter(vni, &req.n, sizeof(req),
+			 (group_present ? &daddr : NULL));
 
 	req.tmsg.ifindex = ll_name_to_index(d);
 	if (req.tmsg.ifindex == 0) {

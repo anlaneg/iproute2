@@ -215,6 +215,7 @@ dump:
 			 */
 			if (errno == EOPNOTSUPP &&
 			    filter.family == AF_UNSPEC) {
+				delete_json_obj();
 				filter.family = AF_INET;
 				goto dump;
 			}

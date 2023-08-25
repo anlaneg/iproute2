@@ -558,7 +558,7 @@ void __print_rta_gateway(FILE *fp, unsigned char family, const char *gateway)
 	}
 }
 
-void print_rta_gateway(FILE *fp, unsigned char family, const struct rtattr *rta)
+static void print_rta_gateway(FILE *fp, unsigned char family, const struct rtattr *rta)
 {
 	const char *gateway = format_host_rta(family, rta);
 
@@ -2011,6 +2011,7 @@ static int iproute_list_flush_or_save(int argc, char **argv, int action)
 	if (rtnl_dump_filter_errhndlr(&rth, filter_fn, stdout,
 				      save_route_errhndlr, NULL) < 0) {
 		fprintf(stderr, "Dump terminated\n");
+		delete_json_obj();
 		return -2;
 	}
 
@@ -2206,18 +2207,21 @@ static int iproute_get(int argc, char **argv)
 
 		if (print_route(answer, (void *)stdout) < 0) {
 			fprintf(stderr, "An error :-)\n");
+			delete_json_obj();
 			free(answer);
 			return -1;
 		}
 
 		if (answer->nlmsg_type != RTM_NEWROUTE) {
 			fprintf(stderr, "Not a route?\n");
+			delete_json_obj();
 			free(answer);
 			return -1;
 		}
 		len -= NLMSG_LENGTH(sizeof(*r));
 		if (len < 0) {
 			fprintf(stderr, "Wrong len %d\n", len);
+			delete_json_obj();
 			free(answer);
 			return -1;
 		}
@@ -2229,6 +2233,7 @@ static int iproute_get(int argc, char **argv)
 			r->rtm_src_len = 8*RTA_PAYLOAD(tb[RTA_PREFSRC]);
 		} else if (!tb[RTA_SRC]) {
 			fprintf(stderr, "Failed to connect the route\n");
+			delete_json_obj();
 			free(answer);
 			return -1;
 		}
@@ -2251,6 +2256,7 @@ static int iproute_get(int argc, char **argv)
 
 	if (print_route(answer, (void *)stdout) < 0) {
 		fprintf(stderr, "An error :-)\n");
+		delete_json_obj();
 		free(answer);
 		return -1;
 	}

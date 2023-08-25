@@ -18,6 +18,7 @@
 
 static unsigned int filter_index, filter_vlan;
 static int vlan_rtm_cur_ifidx = -1;
+static void print_vlan_info(struct rtattr *tb, int ifindex);
 
 enum vlan_show_subject {
 	VLAN_SHOW_VLAN,
@@ -38,6 +39,7 @@ static void usage(void)
 		"       bridge vlan { set } vid VLAN_ID dev DEV [ state STP_STATE ]\n"
 		"                                               [ mcast_router MULTICAST_ROUTER ]\n"
 		"                                               [ mcast_max_groups MAX_GROUPS ]\n"
+		"                                               [ neigh_suppress {on | off} ]\n"
 		"       bridge vlan { show } [ dev DEV ] [ vid VLAN_ID ]\n"
 		"       bridge vlan { tunnelshow } [ dev DEV ] [ vid VLAN_ID ]\n"
 		"       bridge vlan global { set } vid VLAN_ID dev DEV\n"
@@ -354,6 +356,18 @@ static int vlan_option_set(int argc, char **argv)
 			addattr32(&req.n, sizeof(req),
 				  BRIDGE_VLANDB_ENTRY_MCAST_MAX_GROUPS,
 				  max_groups);
+		} else if (strcmp(*argv, "neigh_suppress") == 0) {
+			bool neigh_suppress;
+			int ret;
+
+			NEXT_ARG();
+			neigh_suppress = parse_on_off("neigh_suppress", *argv,
+						      &ret);
+			if (ret)
+				return ret;
+			addattr8(&req.n, sizeof(req),
+				 BRIDGE_VLANDB_ENTRY_NEIGH_SUPPRESS,
+				 neigh_suppress);
 		} else {
 			if (matches(*argv, "help") == 0)
 				NEXT_ARG();
@@ -1041,6 +1055,11 @@ static void print_vlan_opts(struct rtattr *a, int ifindex)
 		print_uint(PRINT_ANY, "mcast_max_groups", "mcast_max_groups %u ",
 			   rta_getattr_u32(vattr));
 	}
+	if (vtb[BRIDGE_VLANDB_ENTRY_NEIGH_SUPPRESS]) {
+		vattr = vtb[BRIDGE_VLANDB_ENTRY_NEIGH_SUPPRESS];
+		print_on_off(PRINT_ANY, "neigh_suppress", "neigh_suppress %s ",
+			     rta_getattr_u8(vattr));
+	}
 	print_nl();
 	if (show_stats)
 		__print_one_vlan_stats(&vstats);
@@ -1291,7 +1310,7 @@ static int vlan_global_show(int argc, char **argv)
 	return 0;
 }
 
-void print_vlan_info(struct rtattr *tb, int ifindex)
+static void print_vlan_info(struct rtattr *tb, int ifindex)
 {
 	struct rtattr *i, *list = tb;
 	int rem = RTA_PAYLOAD(list);
