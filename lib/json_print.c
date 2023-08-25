@@ -118,7 +118,7 @@ if (_IS_JSON_CONTEXT(type)) {
 	__attribute__((format(printf, 4, 0)))				\
 	int print_color_##type_name(enum output_type t,			\
 				    enum color_attr color,		\
-				    const char *key,			\
+				    const char *key/*json格式时需要此参数*/,			\
 				    const char *fmt,			\
 				    type value)				\
 	{								\

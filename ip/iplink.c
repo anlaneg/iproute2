@@ -350,6 +350,7 @@ static void iplink_parse_vf_vlan_info(int vf, int *argcp, char ***argvp,
 	*argvp = argv;
 }
 
+/*ip link解析vf配置信息*/
 static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 			   struct iplink_req *req, const char *dev)
 {
@@ -493,13 +494,14 @@ static int iplink_parse_vf(int vf, int *argcp, char ***argvp,
 				  &ivs, sizeof(ivs));
 
 		} else if (matches(*argv, "trust") == 0) {
+			/*配置vf trust*/
 			struct ifla_vf_trust ivt;
 
 			NEXT_ARG();
 			ivt.setting = parse_on_off("trust", *argv, &ret);
 			if (ret)
 				return ret;
-			ivt.vf = vf;
+			ivt.vf = vf;/*vf id号*/
 			addattr_l(&req->n, sizeof(*req), IFLA_VF_TRUST,
 				  &ivt, sizeof(ivt));
 
@@ -689,6 +691,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 				addattr_l(&req->n, sizeof(*req), IFLA_NET_NS_FD,
 					  &netns, 4);
 			else if (get_integer(&netns, *argv, 0) == 0)
+				/*实现与指定进程保持同一个pid*/
 				addattr_l(&req->n, sizeof(*req),
 					  IFLA_NET_NS_PID, &netns, 4);
 			else
@@ -766,6 +769,7 @@ int iplink_parse(int argc, char **argv, struct iplink_req *req, char **type)
 			if (!dev)
 				missarg("dev");
 
+			/*解析vf配置*/
 			len = iplink_parse_vf(vf, &argc, &argv, req, dev);
 			if (len < 0)
 				return -1;

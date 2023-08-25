@@ -6,6 +6,7 @@ CFLAGS += -I./include/uapi/
 RDMA_OBJ = rdma.o utils.o dev.o link.o res.o res-pd.o res-mr.o res-cq.o \
 	   res-cmid.o res-qp.o sys.o stat.o stat-mr.o res-ctx.o res-srq.o
 
+# 生成rdma程序
 TARGETS += rdma
 
 all:	$(TARGETS) $(LIBS)

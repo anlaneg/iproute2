@@ -86,6 +86,7 @@ static int macvlan_parse_opt(struct link_util *lu, int argc, char **argv,
 			else if (strcmp(*argv, "vepa") == 0)
 				mode = MACVLAN_MODE_VEPA;
 			else if (strcmp(*argv, "bridge") == 0)
+				/*指明采用bridge模式*/
 				mode = MACVLAN_MODE_BRIDGE;
 			else if (strcmp(*argv, "passthru") == 0)
 				mode = MACVLAN_MODE_PASSTHRU;
@@ -179,6 +180,7 @@ static int macvlan_parse_opt(struct link_util *lu, int argc, char **argv,
 		argc--, argv++;
 	}
 
+	/*添加macvlan模式*/
 	if (mode)
 		addattr32(n, 1024, IFLA_MACVLAN_MODE, mode);
 

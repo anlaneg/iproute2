@@ -283,6 +283,7 @@ static int ll_link_get(const char *name, int index)
 
 	addattr32(&req.n, sizeof(req), IFLA_EXT_MASK, filt_mask);
 	if (name)
+		/*填写接口名称*/
 		addattr_l(&req.n, sizeof(req),
 			  !check_ifname(name) ? IFLA_IFNAME : IFLA_ALT_IFNAME,
 			  name, strlen(name) + 1);
@@ -360,14 +361,18 @@ unsigned ll_name_to_index(const char *name)
 	if (name == NULL)
 		return 0;
 
+	/*在缓存中查询设备名称对应的ifindex*/
 	im = ll_get_by_name(name);
 	if (im)
 		return im->index;
 
+	/*通过接口名称设置*/
 	idx = ll_link_get(name, 0);
 	if (idx == 0)
+		/*netlink未查询到，通过if_nametoindex来获取*/
 		idx = if_nametoindex(name);
 	if (idx == 0)
+		/*支持字符串格式，通过if%u来获取*/
 		idx = ll_idx_a2n(name);
 	return idx;
 }

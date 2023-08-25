@@ -584,6 +584,7 @@ int rtnl_linkdump_req_filter_fn(struct rtnl_handle *rth, int family,
 		if (!filter_fn)
 			return -EINVAL;
 
+		/*触发filter回调*/
 		err = filter_fn(&req.nlh, sizeof(req));
 		if (err)
 			return err;

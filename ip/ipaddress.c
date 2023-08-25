@@ -1056,8 +1056,10 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 	if (brief)
 		return print_linkinfo_brief(fp, name, ifi, tb);
 
+	/*显示link ifindex*/
 	print_int(PRINT_ANY, "ifindex", "%d: ", ifi->ifi_index);
 
+	/*显示名称*/
 	m_flag = print_name_and_link("%s: ", name, tb);
 	print_link_flags(fp, ifi->ifi_flags, m_flag);
 
@@ -2027,6 +2029,7 @@ static int iplink_filter_req(struct nlmsghdr *nlh, int reqlen)
 		return err;
 
 	if (filter.master) {
+		/*添加全局master filter*/
 		err = addattr32(nlh, reqlen, IFLA_MASTER, filter.master);
 		if (err)
 			return err;
@@ -2037,6 +2040,7 @@ static int iplink_filter_req(struct nlmsghdr *nlh, int reqlen)
 
 		linkinfo = addattr_nest(nlh, reqlen, IFLA_LINKINFO);
 
+		/*添加kind过滤*/
 		err = addattr_l(nlh, reqlen, IFLA_INFO_KIND, filter.kind,
 				strlen(filter.kind));
 		if (err)
@@ -2178,7 +2182,7 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 			ifindex = ll_name_to_index(*argv);
 			if (!ifindex)
 				invarg("Device does not exist\n", *argv);
-			filter.master = ifindex;
+			filter.master = ifindex;/*填写master ifindex*/
 		} else if (strcmp(*argv, "vrf") == 0) {
 			int ifindex;
 
@@ -2268,6 +2272,7 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 		if (ipaddr_link_get(filter.ifindex, &linfo) != 0)
 			goto out;
 	} else {
+		/*添加全局filter*/
 		if (ip_link_list(iplink_filter_req, &linfo) != 0)
 			goto out;
 	}

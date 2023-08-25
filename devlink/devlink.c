@@ -359,9 +359,9 @@ struct dl_opts {
 	enum devlink_reload_action reload_action;
 	enum devlink_reload_limit reload_limit;
 	uint32_t port_controller;
-	uint32_t port_sfnumber;
-	uint16_t port_flavour;
-	uint16_t port_pfnumber;
+	uint32_t port_sfnumber;/*指明sf number*/
+	uint16_t port_flavour;/*指明port flavour类型*/
+	uint16_t port_pfnumber;/*指明pf number*/
 	uint8_t port_fn_state;
 	uint16_t rate_type;
 	uint64_t rate_tx_share;
@@ -1152,6 +1152,7 @@ static int dl_argv_handle_both(struct dl *dl, char **p_bus_name,
 			       char **p_dev_name, uint32_t *p_port_index,
 			       uint64_t *p_handle_bit)
 {
+	/*取当前待解析参数*/
 	char *str = dl_argv_next(dl);
 	unsigned int slash_count;
 	int err;
@@ -1164,6 +1165,7 @@ static int dl_argv_handle_both(struct dl *dl, char **p_bus_name,
 	}
 	slash_count = get_str_char_count(str, '/');
 	if (slash_count == 1) {
+		/*参数中包含一个'/'，按'/'拆成bus_name与dev_name*/
 		err = __dl_argv_handle(str, p_bus_name, p_dev_name);
 		if (err)
 			return err;
@@ -1583,6 +1585,7 @@ static int selftests_get(const char *selftest_name, bool *selftests_opt)
 	return 0;
 }
 
+/*检查所给value是port_flavour_map中的数组下标*/
 static int port_flavour_parse(const char *flavour, uint16_t *value)
 {
 	int num;
@@ -2145,6 +2148,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 
 			o_found |= DL_OPT_PORT_FUNCTION_STATE;
 		} else if (dl_argv_match(dl, "flavour") && (o_all & DL_OPT_PORT_FLAVOUR)) {
+			/*解析flavour子选项，例如devlink port add pci/0000:06:00.0 flavour pcisf pfnum 0 sfnum 88*/
 			const char *flavourstr;
 
 			dl_arg_inc(dl);
@@ -2156,18 +2160,21 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 				return err;
 			o_found |= DL_OPT_PORT_FLAVOUR;
 		} else if (dl_argv_match(dl, "pfnum") && (o_all & DL_OPT_PORT_PFNUMBER)) {
+			/*指明pfnum*/
 			dl_arg_inc(dl);
 			err = dl_argv_uint16_t(dl, &opts->port_pfnumber);
 			if (err)
 				return err;
 			o_found |= DL_OPT_PORT_PFNUMBER;
 		} else if (dl_argv_match(dl, "sfnum") && (o_all & DL_OPT_PORT_SFNUMBER)) {
+			/*指明sfnum*/
 			dl_arg_inc(dl);
 			err = dl_argv_uint32_t(dl, &opts->port_sfnumber);
 			if (err)
 				return err;
 			o_found |= DL_OPT_PORT_SFNUMBER;
 		} else if (dl_argv_match(dl, "controller") && (o_all & DL_OPT_PORT_CONTROLLER)) {
+			/*设置controller*/
 			dl_arg_inc(dl);
 			err = dl_argv_uint32_t(dl, &opts->port_controller);
 			if (err)
@@ -2274,7 +2281,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		}
 	}
 
-	opts->present = o_found;
+	opts->present = o_found;/*指明发现了哪些选项*/
 
 	if ((o_optional & DL_OPT_SB) && !(o_found & DL_OPT_SB)) {
 		opts->sb_index = 0;
@@ -2357,9 +2364,12 @@ dl_selftests_put(struct nlmsghdr *nlh, const struct dl_opts *opts)
 
 static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 {
+	/*取出填充好的选项*/
 	struct dl_opts *opts = &dl->opts;
 
+	/*设置命令行解析的参数*/
 	if (opts->present & DL_OPT_HANDLE) {
+		/*设置bus_name及dev_name*/
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_BUS_NAME, opts->bus_name);
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_DEV_NAME, opts->dev_name);
 	} else if (opts->present & DL_OPT_HANDLEP) {
@@ -2405,12 +2415,14 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_SB_TC)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_SB_TC_INDEX,
 				 opts->sb_tc_index);
+
+	/*如果有eswitch_mode,则填充eswitch mode*/
 	if (opts->present & DL_OPT_ESWITCH_MODE)
-	    /*如果有eswitch_mode,则填充eswitch mode*/
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_ESWITCH_MODE,
 				 opts->eswitch_mode);
+
+	/*如果有eswitch_inline_mode,则填充eswitch inline mode*/
 	if (opts->present & DL_OPT_ESWITCH_INLINE_MODE)
-	    /*如果有eswitch_inline_mode,则填充eswitch inline mode*/
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_INLINE_MODE,
 				opts->eswitch_inline_mode);
 	if (opts->present & DL_OPT_DPIPE_TABLE_NAME)
@@ -2419,6 +2431,7 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_DPIPE_TABLE_COUNTERS)
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_DPIPE_TABLE_COUNTERS_ENABLED,
 				opts->dpipe_counters_enabled);
+
 	/*填充eswitch encap mode*/
 	if (opts->present & DL_OPT_ESWITCH_ENCAP_MODE)
 		mnl_attr_put_u8(nlh, DEVLINK_ATTR_ESWITCH_ENCAP_MODE,
@@ -2498,12 +2511,20 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & (DL_OPT_PORT_FUNCTION_HW_ADDR | DL_OPT_PORT_FUNCTION_STATE |
 			     DL_OPT_PORT_FN_CAPS))
 		dl_function_attr_put(nlh, opts);
+
+	/*设置flavor*/
 	if (opts->present & DL_OPT_PORT_FLAVOUR)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_PORT_FLAVOUR, opts->port_flavour);
+
+	/*设置pf number*/
 	if (opts->present & DL_OPT_PORT_PFNUMBER)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_PORT_PCI_PF_NUMBER, opts->port_pfnumber);
+
+	/*设置sf number*/
 	if (opts->present & DL_OPT_PORT_SFNUMBER)
 		mnl_attr_put_u32(nlh, DEVLINK_ATTR_PORT_PCI_SF_NUMBER, opts->port_sfnumber);
+
+	/*设置controller*/
 	if (opts->present & DL_OPT_PORT_CONTROLLER)
 		mnl_attr_put_u32(nlh, DEVLINK_ATTR_PORT_CONTROLLER_NUMBER,
 				 opts->port_controller);
@@ -5523,6 +5544,7 @@ static int cmd_port(struct dl *dl)
 		}
 	} else if (dl_argv_match(dl, "add")) {
 		dl_arg_inc(dl);
+		/*执行devlink port add*/
 		return cmd_port_add(dl);
 	} else if (dl_argv_match(dl, "del")) {
 		dl_arg_inc(dl);
@@ -9851,6 +9873,7 @@ static int dl_cmd(struct dl *dl, int argc, char **argv)
 	dl->argv = argv;
 
 	if (dl_argv_match(dl, "help") || dl_no_arg(dl)) {
+		/*显示帮助信息*/
 		help();
 		return 0;
 	} else if (dl_argv_match(dl, "dev")) {

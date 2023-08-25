@@ -68,6 +68,7 @@ static int do_cmd(const char *argv0, int argc, char **argv)
 {
 	const struct cmd *c;
 
+	/*通过argv0查找cmd,并调用回调*/
 	for (c = cmds; c->cmd; ++c) {
 		if (matches(argv0, c->cmd) == 0)
 			return c->func(argc-1, argv+1);
@@ -83,6 +84,7 @@ static int br_batch_cmd(int argc, char *argv[], void *data)
 	return do_cmd(argv[0], argc, argv);
 }
 
+/*bridge batch处理*/
 static int batch(const char *name)
 {
 	int ret;
@@ -100,7 +102,7 @@ static int batch(const char *name)
 	return ret;
 }
 
-//桥管理命令入口
+//桥命令管理命令入口
 int
 main(int argc, char **argv)
 {
@@ -108,15 +110,19 @@ main(int argc, char **argv)
 		const char *opt = argv[1];
 
 		if (strcmp(opt, "--") == 0) {
+			/*非命令选项，跳出*/
 			argc--; argv++;
 			break;
 		}
 		if (opt[0] != '-')
+			/*非选项，跳出*/
 			break;
 		if (opt[1] == '-')
+			/*忽略掉首个'-'*/
 			opt++;
 
 		if (matches(opt, "-help") == 0) {
+			/*处理--help,显示帮助*/
 			usage();
 		} else if (matches(opt, "-Version") == 0) {
 			printf("bridge utility, %s\n", version);
@@ -135,6 +141,7 @@ main(int argc, char **argv)
 			argv++;
 			if (argc <= 1)
 				usage();
+			/*确定preferred family*/
 			if (strcmp(argv[1], "inet") == 0)
 				preferred_family = AF_INET;
 			else if (strcmp(argv[1], "inet6") == 0)
@@ -148,6 +155,7 @@ main(int argc, char **argv)
 		} else if (strcmp(opt, "-6") == 0) {
 			preferred_family = AF_INET6;
 		} else if (matches(opt, "-netns") == 0) {
+			/*切换netns*/
 			NEXT_ARG();
 			if (netns_switch(argv[1]))
 				exit(-1);
@@ -165,6 +173,7 @@ main(int argc, char **argv)
 			argv++;
 			if (argc <= 1)
 				usage();
+			/*设置batch文件*/
 			batch_file = argv[1];
 		} else {
 			fprintf(stderr,

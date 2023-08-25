@@ -290,6 +290,7 @@ static int link_one_show(struct rd *rd)
 	return rd_exec_cmd(rd, cmds, "parameter");
 }
 
+/*执行link显示*/
 static int link_show(struct rd *rd)
 {
 	return rd_exec_link(rd, link_one_show, true);
@@ -306,15 +307,17 @@ static int link_add_netdev(struct rd *rd)
 		return -EINVAL;
 	}
 
-	/*配置netdev*/
+	/*参数指定的底层netdev*/
 	link_netdev = rd_argv(rd);
+	/*执行执行rdma newlink命令*/
 	rd_prepare_msg(rd, RDMA_NLDEV_CMD_NEWLINK, &seq,
 		       (NLM_F_REQUEST | NLM_F_ACK));
+	/*指定要创建的link名称/link类型/依附的网络设备*/
 	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_DEV_NAME, rd->link_name);
 	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_LINK_TYPE, rd->link_type);
 	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_NDEV_NAME, link_netdev);
 
-	/*发送消息*/
+	/*向kernel发送消息，并接受响应*/
 	return rd_sendrecv_msg(rd, seq);
 }
 
@@ -331,12 +334,13 @@ static int link_add_type(struct rd *rd)
 		pr_err("Please provide a link type name.\n");
 		return -EINVAL;
 	}
-	rd->link_type = rd_argv(rd);
+	rd->link_type = rd_argv(rd);/*取type关键字指定的link类型*/
 	rd_arg_inc(rd);
 	/*解析netdev*/
 	return rd_exec_cmd(rd, cmds, "parameter");
 }
 
+/*执行rdma link添加*/
 static int link_add(struct rd *rd)
 {
 	const struct rd_cmd cmds[] = {
@@ -351,13 +355,14 @@ static int link_add(struct rd *rd)
 		return -EINVAL;
 	}
 
-	/*要创建的link名称*/
+	/*取要创建的link名称*/
 	rd->link_name = rd_argv(rd);
 	rd_arg_inc(rd);
 
 	return rd_exec_cmd(rd, cmds, "parameter");
 }
 
+/*回调函数，移除rd->dev_idx设备*/
 static int _link_del(struct rd *rd)
 {
 	uint32_t seq;
@@ -372,6 +377,7 @@ static int _link_del(struct rd *rd)
 	return rd_sendrecv_msg(rd, seq);
 }
 
+/*依除所有link/移除某一个匹配的link*/
 static int link_del(struct rd *rd)
 {
 	return rd_exec_require_dev(rd, _link_del);

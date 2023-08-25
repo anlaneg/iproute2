@@ -413,7 +413,7 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 		.n.nlmsg_flags = NLM_F_REQUEST | flags,
 		.n.nlmsg_type = cmd,
 		.ndm.ndm_family = PF_BRIDGE,
-		.ndm.ndm_state = NUD_NOARP,
+		.ndm.ndm_state = NUD_NOARP,/*指明状态为no_arp,对应的static*/
 	};
 	char *addr = NULL;
 	char *d = NULL;
@@ -431,19 +431,21 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
-			d = *argv;
+			d = *argv;/*fdb表项对应的设备*/
 		} else if (strcmp(*argv, "dst") == 0) {
 			NEXT_ARG();
 			if (dst_ok)
-				duparg2("dst", *argv);
+				duparg2("dst", *argv);/*对应的目的地址*/
 			get_addr(&dst, *argv, preferred_family);
 			dst_ok = 1;
 		} else if (strcmp(*argv, "nhid") == 0) {
+			/*设置nhid*/
 			NEXT_ARG();
 			if (get_u32(&nhid, *argv, 0))
 				invarg("\"id\" value is invalid\n", *argv);
 		} else if (strcmp(*argv, "port") == 0) {
 
+			/*添加目的port*/
 			NEXT_ARG();
 			port = strtoul(*argv, &endptr, 0);
 			if (endptr && *endptr) {
@@ -456,42 +458,45 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 			} else if (port > 0xffff)
 				invarg("invalid port\n", *argv);
 		} else if (strcmp(*argv, "vni") == 0) {
+			/*设置vni*/
 			NEXT_ARG();
 			vni = strtoul(*argv, &endptr, 0);
 			if ((endptr && *endptr) ||
 			    (vni >> 24) || vni == ULONG_MAX)
 				invarg("invalid VNI\n", *argv);
 		} else if (strcmp(*argv, "src_vni") == 0) {
+			/*设置src vni*/
 			NEXT_ARG();
 			src_vni = strtoul(*argv, &endptr, 0);
 			if ((endptr && *endptr) ||
 			    (src_vni >> 24) || src_vni == ULONG_MAX)
 				invarg("invalid src VNI\n", *argv);
 		} else if (strcmp(*argv, "via") == 0) {
+			/*解析经过的中间设备*/
 			NEXT_ARG();
 			via = ll_name_to_index(*argv);
 			if (!via)
 				exit(nodev(*argv));
 		} else if (strcmp(*argv, "self") == 0) {
-			req.ndm.ndm_flags |= NTF_SELF;
+			req.ndm.ndm_flags |= NTF_SELF;/*配置当前设备*/
 		} else if (matches(*argv, "master") == 0) {
-			req.ndm.ndm_flags |= NTF_MASTER;
+			req.ndm.ndm_flags |= NTF_MASTER;/*配置master设备*/
 		} else if (matches(*argv, "router") == 0) {
 			req.ndm.ndm_flags |= NTF_ROUTER;
 		} else if (matches(*argv, "local") == 0 ||
 			   matches(*argv, "permanent") == 0) {
-			req.ndm.ndm_state |= NUD_PERMANENT;
+			req.ndm.ndm_state |= NUD_PERMANENT;/*指明local fdb表*/
 		} else if (matches(*argv, "temp") == 0 ||
 			   matches(*argv, "static") == 0) {
-			req.ndm.ndm_state |= NUD_REACHABLE;
+			req.ndm.ndm_state |= NUD_REACHABLE;/*指明static fdb表*/
 		} else if (matches(*argv, "dynamic") == 0) {
 			req.ndm.ndm_state |= NUD_REACHABLE;
-			req.ndm.ndm_state &= ~NUD_NOARP;
+			req.ndm.ndm_state &= ~NUD_NOARP;/*指明动态arp表项*/
 		} else if (matches(*argv, "vlan") == 0) {
 			if (vid >= 0)
 				duparg2("vlan", *argv);
 			NEXT_ARG();
-			vid = atoi(*argv);
+			vid = atoi(*argv);/*指明vlan id*/
 		} else if (matches(*argv, "use") == 0) {
 			req.ndm.ndm_flags |= NTF_USE;
 		} else if (matches(*argv, "extern_learn") == 0) {
@@ -506,7 +511,7 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 				usage();
 			if (addr)
 				duparg2("to", *argv);
-			addr = *argv;
+			addr = *argv;/*目的地址*/
 		}
 		argc--; argv++;
 	}
@@ -516,6 +521,7 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 		return -1;
 	}
 
+	/*nhid配置情况下，其它三者只能选其一*/
 	if (nhid && (dst_ok || port || vni != ~0)) {
 		fprintf(stderr, "dst, port, vni are mutually exclusive with nhid\n");
 		return -1;
@@ -523,12 +529,13 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 
 	/* Assume self */
 	if (!(req.ndm.ndm_flags&(NTF_SELF|NTF_MASTER)))
-		req.ndm.ndm_flags |= NTF_SELF;
+		req.ndm.ndm_flags |= NTF_SELF;/*默认配置self*/
 
 	/* Assume permanent */
 	if (!(req.ndm.ndm_state&(NUD_PERMANENT|NUD_REACHABLE)))
-		req.ndm.ndm_state |= NUD_PERMANENT;
+		req.ndm.ndm_state |= NUD_PERMANENT;/*默认为static表项*/
 
+	/*解析mac地址*/
 	if (sscanf(addr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
 		   abuf, abuf+1, abuf+2,
 		   abuf+3, abuf+4, abuf+5) != 6) {
@@ -536,28 +543,39 @@ static int fdb_modify(int cmd, int flags, int argc, char **argv)
 		return -1;
 	}
 
-	addattr_l(&req.n, sizeof(req), NDA_LLADDR, abuf, ETH_ALEN);
+	addattr_l(&req.n, sizeof(req), NDA_LLADDR, abuf, ETH_ALEN);/*添加mac地址*/
+	/*添加目的地址*/
 	if (dst_ok)
 		addattr_l(&req.n, sizeof(req), NDA_DST, &dst.data, dst.bytelen);
 
+	/*添加vlan*/
 	if (vid >= 0)
 		addattr16(&req.n, sizeof(req), NDA_VLAN, vid);
+	/*添加next hop id*/
 	if (nhid > 0)
 		addattr32(&req.n, sizeof(req), NDA_NH_ID, nhid);
 
+	/*添加目的port*/
 	if (port) {
 		unsigned short dport;
 
 		dport = htons((unsigned short)port);
 		addattr16(&req.n, sizeof(req), NDA_PORT, dport);
 	}
+
+	/*添加vni*/
 	if (vni != ~0)
 		addattr32(&req.n, sizeof(req), NDA_VNI, vni);
+
+	/*添加src vni*/
 	if (src_vni != ~0)
 		addattr32(&req.n, sizeof(req), NDA_SRC_VNI, src_vni);
+
+	/*添加经过的设备ifindex*/
 	if (via)
 		addattr32(&req.n, sizeof(req), NDA_IFINDEX, via);
 
+	/*指明ndm对应的设备*/
 	req.ndm.ndm_ifindex = ll_name_to_index(d);
 	if (!req.ndm.ndm_ifindex)
 		return nodev(d);
@@ -596,11 +614,12 @@ static int fdb_get(int argc, char **argv)
 			d = *argv;
 		} else if (strcmp(*argv, "br") == 0) {
 			NEXT_ARG();
-			br = *argv;
+			br = *argv;/*指定bridge*/
 		} else if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
 			d = *argv;
 		} else if (strcmp(*argv, "vni") == 0) {
+			/*解析对vni的配置（vxlan id)*/
 			NEXT_ARG();
 			vni = strtoul(*argv, &endptr, 0);
 			if ((endptr && *endptr) ||
@@ -611,6 +630,7 @@ static int fdb_get(int argc, char **argv)
 		} else if (matches(*argv, "master") == 0) {
 			req.ndm.ndm_flags |= NTF_MASTER;
 		} else if (matches(*argv, "vlan") == 0) {
+			/*解析vlan配置*/
 			if (vlan >= 0)
 				duparg2("vlan", *argv);
 			NEXT_ARG();
@@ -642,15 +662,17 @@ static int fdb_get(int argc, char **argv)
 		return -1;
 	}
 
+	/*请求对应的mac地址*/
 	addattr_l(&req.n, sizeof(req), NDA_LLADDR, abuf, ETH_ALEN);
 
 	if (vlan >= 0)
-		addattr16(&req.n, sizeof(req), NDA_VLAN, vlan);
+		addattr16(&req.n, sizeof(req), NDA_VLAN, vlan);/*指定vlan*/
 
 	if (vni != ~0)
-		addattr32(&req.n, sizeof(req), NDA_VNI, vni);
+		addattr32(&req.n, sizeof(req), NDA_VNI, vni);/*指定vni*/
 
 	if (d) {
+		/*表项对应的ifindex*/
 		req.ndm.ndm_ifindex = ll_name_to_index(d);
 		if (!req.ndm.ndm_ifindex) {
 			fprintf(stderr, "Cannot find device \"%s\"\n", d);
@@ -664,7 +686,7 @@ static int fdb_get(int argc, char **argv)
 			fprintf(stderr, "Cannot find bridge device \"%s\"\n", br);
 			return -1;
 		}
-		addattr32(&req.n, sizeof(req), NDA_MASTER, br_ifindex);
+		addattr32(&req.n, sizeof(req), NDA_MASTER, br_ifindex);/*指定桥ifindex*/
 	}
 
 	if (rtnl_talk(&rth, &req.n, &answer) < 0)
@@ -827,6 +849,7 @@ int do_fdb(int argc, char **argv)
 
 	if (argc > 0) {
 		if (matches(*argv, "add") == 0)
+			/*添加fdb表项*/
 			return fdb_modify(RTM_NEWNEIGH, NLM_F_CREATE|NLM_F_EXCL, argc-1, argv+1);
 		if (matches(*argv, "append") == 0)
 			return fdb_modify(RTM_NEWNEIGH, NLM_F_CREATE|NLM_F_APPEND, argc-1, argv+1);

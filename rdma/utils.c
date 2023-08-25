@@ -619,6 +619,7 @@ int rd_exec_dev(struct rd *rd, int (*cb)(struct rd *rd))
 
 	new_json_obj(rd->json_output);
 	if (rd_no_arg(rd)) {
+		/*没有参数，则遍历rd->dev_map_list中所有设备，逐个处理cb回调*/
 		list_for_each_entry(dev_map, &rd->dev_map_list, list) {
 			rd->dev_idx = dev_map->idx;
 			ret = cb(rd);
@@ -626,6 +627,7 @@ int rd_exec_dev(struct rd *rd, int (*cb)(struct rd *rd))
 				goto out;
 		}
 	} else {
+		/*通过devname查询dev_map,执行cb回调*/
 		dev_map = dev_map_lookup(rd, false);
 		if (!dev_map) {
 			pr_err("Wrong device name - %s\n", rd_argv(rd));

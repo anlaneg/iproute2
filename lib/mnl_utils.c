@@ -182,6 +182,7 @@ int mnlu_gen_socket_open(struct mnlu_gen_socket *nlg, const char *family_name,
 	if (!nlg->nl)
 		goto err_socket_open;
 
+	/*通过名称获取family id*/
 	err = family_get(nlg, family_name);
 	if (err)
 		goto err_socket;

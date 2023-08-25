@@ -1286,18 +1286,22 @@ unsigned int print_name_and_link(const char *fmt,
 	unsigned int m_flag = 0;
 	SPRINT_BUF(b1);
 
+	/*指明了link*/
 	if (tb[IFLA_LINK]) {
 		int iflink = rta_getattr_u32(tb[IFLA_LINK]);
 
 		if (iflink) {
 			if (tb[IFLA_LINK_NETNSID]) {
+				/*link所属的netns id不为0，故其在netns中*/
 				if (is_json_context()) {
 					print_int(PRINT_JSON,
 						  "link_index", NULL, iflink);
 				} else {
+					/*格式化为if%u样式*/
 					link = ll_idx_n2a(iflink);
 				}
 			} else {
+				/*格式化为ifname*/
 				link = ll_index_to_name(iflink);
 
 				if (is_json_context()) {
@@ -1310,12 +1314,14 @@ unsigned int print_name_and_link(const char *fmt,
 				m_flag = !(m_flag & IFF_UP);
 			}
 		} else {
+			/*指明了IFLA_LINK,但其ifindex为0，有误的返回*/
 			if (is_json_context())
 				print_null(PRINT_JSON, "link", NULL, NULL);
 			else
 				link = "NONE";
 		}
 
+		/*包含link的，输出接口名称及link*/
 		if (link) {
 			snprintf(b1, sizeof(b1), "%s@%s", name, link);
 			name = b1;

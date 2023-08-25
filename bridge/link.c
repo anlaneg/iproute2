@@ -42,7 +42,7 @@ static void print_link_flags(FILE *fp, unsigned int flags, unsigned int mdown)
 #define _PF(f) if (flags&IFF_##f) {					\
 		flags &= ~IFF_##f ;					\
 		print_string(PRINT_ANY, NULL, flags ? "%s," : "%s", #f); }
-	_PF(LOOPBACK);
+	_PF(LOOPBACK);/*显示loopback*/
 	_PF(BROADCAST);
 	_PF(POINTOPOINT);
 	_PF(MULTICAST);
@@ -56,11 +56,12 @@ static void print_link_flags(FILE *fp, unsigned int flags, unsigned int mdown)
 	_PF(AUTOMEDIA);
 	_PF(PORTSEL);
 	_PF(NOTRAILERS);
-	_PF(UP);
-	_PF(LOWER_UP);
+	_PF(UP);/*本设备up*/
+	_PF(LOWER_UP);/*底层设备up*/
 	_PF(DORMANT);
 	_PF(ECHO);
 #undef _PF
+	/*显示未识别的flags*/
 	if (flags)
 		print_hex(PRINT_ANY, NULL, "%x", flags);
 	if (mdown)
@@ -110,25 +111,30 @@ static void print_protinfo(FILE *fp, struct rtattr *attr)
 
 		parse_rtattr_nested(prtb, IFLA_BRPORT_MAX, attr);
 
+		/*显示brport状态*/
 		if (prtb[IFLA_BRPORT_STATE])
 			print_stp_state(rta_getattr_u8(prtb[IFLA_BRPORT_STATE]));
 
+		/*显示priority*/
 		if (prtb[IFLA_BRPORT_PRIORITY])
 			print_uint(PRINT_ANY, "priority",
 				   "priority %u ",
 				   rta_getattr_u16(prtb[IFLA_BRPORT_PRIORITY]));
 
+		/*显示cost*/
 		if (prtb[IFLA_BRPORT_COST])
 			print_uint(PRINT_ANY, "cost",
 				   "cost %u ",
 				   rta_getattr_u32(prtb[IFLA_BRPORT_COST]));
 
+		/*如果不要求details,则直接返回*/
 		if (!show_details)
 			return;
 
 		if (!is_json_context())
 			fprintf(fp, "%s    ", _SL_);
 
+		/*hairpin是否开启*/
 		if (prtb[IFLA_BRPORT_MODE])
 			print_on_off(PRINT_ANY, "hairpin", "hairpin %s ",
 				     rta_getattr_u8(prtb[IFLA_BRPORT_MODE]));
@@ -214,6 +220,7 @@ static void print_af_spec(struct rtattr *attr, int ifindex)
 
 	parse_rtattr_nested(aftb, IFLA_BRIDGE_MAX, attr);
 
+	/*显示hwmode,例如hwmode VEB*/
 	if (aftb[IFLA_BRIDGE_MODE])
 		print_hwmode(rta_getattr_u16(aftb[IFLA_BRIDGE_MODE]));
 }
@@ -236,6 +243,7 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 	if (!(ifi->ifi_family == AF_BRIDGE || ifi->ifi_family == AF_UNSPEC))
 		return 0;
 
+	/*跳过与filter_index不相等的dev*/
 	if (filter_index && filter_index != ifi->ifi_index)
 		return 0;
 
@@ -251,15 +259,19 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 	if (n->nlmsg_type == RTM_DELLINK)
 		print_bool(PRINT_ANY, "deleted", "Deleted ", true);
 
+	/*输出ifindex*/
 	print_int(PRINT_ANY, "ifindex", "%d: ", ifi->ifi_index);
+	/*输出接口名称*/
 	m_flag = print_name_and_link("%s: ", name, tb);
 	print_link_flags(fp, ifi->ifi_flags, m_flag);
 
+	/*显示mtu*/
 	if (tb[IFLA_MTU])
 		print_int(PRINT_ANY,
 			  "mtu", "mtu %u ",
 			  rta_getattr_u32(tb[IFLA_MTU]));
 
+	/*显示master*/
 	if (tb[IFLA_MASTER]) {
 		int master = rta_getattr_u32(tb[IFLA_MASTER]);
 
@@ -349,7 +361,7 @@ static int brlink_modify(int argc, char **argv)
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
-			d = *argv;
+			d = *argv;/*指明操作的设备*/
 		} else if (strcmp(*argv, "guard") == 0) {
 			NEXT_ARG();
 			bpdu_guard = parse_on_off("guard", *argv, &ret);
@@ -428,6 +440,7 @@ static int brlink_modify(int argc, char **argv)
 			}
 		} else if (strcmp(*argv, "hwmode") == 0) {
 			NEXT_ARG();
+			/*默认只容许修改自身*/
 			flags = BRIDGE_FLAGS_SELF;
 			if (strcmp(*argv, "vepa") == 0)
 				mode = BRIDGE_MODE_VEPA;
@@ -439,8 +452,10 @@ static int brlink_modify(int argc, char **argv)
 				return -1;
 			}
 		} else if (strcmp(*argv, "self") == 0) {
+			/*指明修改self*/
 			flags |= BRIDGE_FLAGS_SELF;
 		} else if (strcmp(*argv, "master") == 0) {
+			/*指明修改master*/
 			flags |= BRIDGE_FLAGS_MASTER;
 		} else if (strcmp(*argv, "neigh_suppress") == 0) {
 			NEXT_ARG();
@@ -592,6 +607,7 @@ static int brlink_show(int argc, char **argv)
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
+			/*按dev进行过滤*/
 			if (filter_dev)
 				duparg("dev", *argv);
 			filter_dev = *argv;
@@ -629,10 +645,12 @@ int do_link(int argc, char **argv)
 	if (argc > 0) {
 		if (matches(*argv, "set") == 0 ||
 		    matches(*argv, "change") == 0)
+			/*修改link的具体属性*/
 			return brlink_modify(argc-1, argv+1);
 		if (matches(*argv, "show") == 0 ||
 		    matches(*argv, "lst") == 0 ||
 		    matches(*argv, "list") == 0)
+			/*显示brlink*/
 			return brlink_show(argc-1, argv+1);
 		if (matches(*argv, "help") == 0)
 			usage();
