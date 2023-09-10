@@ -1703,6 +1703,7 @@ static int dl_args_finding_required_validate(uint64_t o_required,
 	return 0;
 }
 
+/*本来是若干极简单的函数，奈何作者就喜欢搞的复杂些，还得耐着性子看他上窜下跳地玩，服了。*/
 static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			 uint64_t o_optional)
 {
@@ -4805,6 +4806,7 @@ static int cmd_port_show(struct dl *dl)
 	int err;
 
 	if (dl_no_arg(dl)) {
+		/*无参数情况*/
 		flags |= NLM_F_DUMP;
 	}
 	else {
@@ -5512,6 +5514,7 @@ static int cmd_port_del(struct dl *dl)
 	return mnlu_gen_socket_sndrcv(&dl->nlg, nlh, NULL, NULL);
 }
 
+/*devlink port命令处理*/
 static int cmd_port(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help")) {
@@ -5520,6 +5523,7 @@ static int cmd_port(struct dl *dl)
 	} else if (dl_argv_match(dl, "show") ||
 		   dl_argv_match(dl, "list") ||  dl_no_arg(dl)) {
 		dl_arg_inc(dl);
+		/*处理devlink port [list|show|]*/
 		return cmd_port_show(dl);
 	} else if (dl_argv_match(dl, "set")) {
 		dl_arg_inc(dl);
@@ -9919,6 +9923,7 @@ static int dl_init(struct dl *dl)
 {
 	int err;
 
+	/*初始化gen socket*/
 	err = mnlu_gen_socket_open(&dl->nlg, DEVLINK_GENL_NAME,
 				   DEVLINK_GENL_VERSION);
 	if (err) {
@@ -9966,6 +9971,7 @@ static int dl_batch(struct dl *dl, const char *name, bool force)
 	return do_batch(name, force, dl_batch_cmd, dl);
 }
 
+/*devlink命令行入口*/
 int main(int argc, char **argv)
 {
 	static const struct option long_options[] = {
@@ -10057,7 +10063,7 @@ int main(int argc, char **argv)
 	if (batch_file)
 		err = dl_batch(dl, batch_file, force);
 	else
-		//命令行处理
+		//devlink命令行处理
 		err = dl_cmd(dl, argc, argv);
 
 	if (err) {

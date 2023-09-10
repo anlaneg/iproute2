@@ -81,6 +81,7 @@ static int parse_vni_filter(const char *argv, struct nlmsghdr *n, int reqsize,
 	return 0;
 }
 
+/*vxlan vnifilter配置*/
 static int vni_modify(int cmd, int argc, char **argv)
 {
 	struct {

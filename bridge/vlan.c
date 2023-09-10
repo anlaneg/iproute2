@@ -71,6 +71,7 @@ static int parse_tunnel_info(int *argcp, char ***argvp, __u32 *tun_id_start,
 		NEXT_ARG();
 		t = strchr(*argv, '-');
 		if (t) {
+			/*有‘-’，则为一个范围，指明了tunnel start,tunnel end*/
 			*t = '\0';
 			if (get_u32(tun_id_start, *argv, 0) ||
 				    *tun_id_start >= 1u << 24)
@@ -80,6 +81,7 @@ static int parse_tunnel_info(int *argcp, char ***argvp, __u32 *tun_id_start,
 				invarg("invalid tun id", *argv);
 
 		} else {
+			/*仅指明一个tunnel id*/
 			if (get_u32(tun_id_start, *argv, 0) ||
 				    *tun_id_start >= 1u << 24)
 				invarg("invalid tun id", *argv);
@@ -99,6 +101,7 @@ static int add_tunnel_info(struct nlmsghdr *n, int reqsize,
 {
 	struct rtattr *tinfo;
 
+	/*一个vlan与一个vid对应*/
 	tinfo = addattr_nest(n, reqsize, IFLA_BRIDGE_VLAN_TUNNEL_INFO);
 	addattr32(n, reqsize, IFLA_BRIDGE_VLAN_TUNNEL_ID, tun_id);
 	addattr16(n, reqsize, IFLA_BRIDGE_VLAN_TUNNEL_VID, vid);
@@ -114,6 +117,7 @@ static int add_tunnel_info_range(struct nlmsghdr *n, int reqsize,
 				 __u32 tun_id_start, __u32 tun_id_end)
 {
 	if (vid_end != -1 && (vid_end - vid_start) > 0) {
+		/*vid_end不为-1，即存在vid_end*/
 		add_tunnel_info(n, reqsize, vid_start, tun_id_start,
 				BRIDGE_VLAN_INFO_RANGE_BEGIN);
 
@@ -152,6 +156,7 @@ static int add_vlan_info_range(struct nlmsghdr *n, int reqsize, __u16 vid_start,
 	return 0;
 }
 
+/*vlan创建修改*/
 static int vlan_modify(int cmd, int argc, char **argv)
 {
 	struct {
@@ -177,13 +182,15 @@ static int vlan_modify(int cmd, int argc, char **argv)
 	while (argc > 0) {
 		if (strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
-			d = *argv;
+			d = *argv;/*应用到哪个设备*/
 		} else if (strcmp(*argv, "vid") == 0) {
 			char *p;
 
+			/*要配置的vlan id*/
 			NEXT_ARG();
 			p = strchr(*argv, '-');
 			if (p) {
+				/*指明配置为一组vlan(即trunk口）*/
 				*p = '\0';
 				p++;
 				vid = atoi(*argv);
@@ -193,14 +200,17 @@ static int vlan_modify(int cmd, int argc, char **argv)
 				vid = atoi(*argv);
 			}
 		} else if (strcmp(*argv, "self") == 0) {
-			flags |= BRIDGE_FLAGS_SELF;
+			flags |= BRIDGE_FLAGS_SELF;/*配置接口自身*/
 		} else if (strcmp(*argv, "master") == 0) {
-			flags |= BRIDGE_FLAGS_MASTER;
+			flags |= BRIDGE_FLAGS_MASTER;/*配置接口master*/
 		} else if (strcmp(*argv, "pvid") == 0) {
+			/*指明pvid，其于一组vlan相互冲突，只容许一个,用于收到无tag的报文处理*/
 			vinfo.flags |= BRIDGE_VLAN_INFO_PVID;
 		} else if (strcmp(*argv, "untagged") == 0) {
+			/*用于指明此vlan外送时不加tag*/
 			vinfo.flags |= BRIDGE_VLAN_INFO_UNTAGGED;
 		} else if (strcmp(*argv, "tunnel_info") == 0) {
+			/*一个或一组tunnel info，实现vlan与tunnel id之间的映射*/
 				if (parse_tunnel_info(&argc, &argv,
 						      &tun_id_start,
 						      &tun_id_end))
@@ -213,28 +223,33 @@ static int vlan_modify(int cmd, int argc, char **argv)
 		argc--; argv++;
 	}
 
+	/*要配置的dev及vlan id必须指明*/
 	if (d == NULL || vid == -1) {
 		fprintf(stderr, "Device and VLAN ID are required arguments.\n");
 		return -1;
 	}
 
+	/*指明配置对应的ifindex*/
 	req.ifm.ifi_index = ll_name_to_index(d);
 	if (req.ifm.ifi_index == 0) {
 		fprintf(stderr, "Cannot find bridge device \"%s\"\n", d);
 		return -1;
 	}
 
+	/*vlan id有效性检查*/
 	if (vid >= 4096) {
 		fprintf(stderr, "Invalid VLAN ID \"%hu\"\n", vid);
 		return -1;
 	}
 
+	/*指明采用一组vlan配置*/
 	if (vinfo.flags & BRIDGE_VLAN_INFO_RANGE_BEGIN) {
 		if (vid_end == -1 || vid_end >= 4096 || vid >= vid_end) {
 			fprintf(stderr, "Invalid VLAN range \"%hu-%hu\"\n",
 				vid, vid_end);
 			return -1;
 		}
+		/*如果指明了一组vlan,则pvid不容许配置*/
 		if (vinfo.flags & BRIDGE_VLAN_INFO_PVID) {
 			fprintf(stderr,
 				"pvid cannot be configured for a vlan range\n");
@@ -242,20 +257,24 @@ static int vlan_modify(int cmd, int argc, char **argv)
 		}
 	}
 
+	/*指明IFLA_AF_SPEC属性*/
 	afspec = addattr_nest(&req.n, sizeof(req), IFLA_AF_SPEC);
 
 	if (flags)
 		addattr16(&req.n, sizeof(req), IFLA_BRIDGE_FLAGS, flags);
 
 	if (tunnel_info_set)
+		/*指明一组tunnel id*/
 		add_tunnel_info_range(&req.n, sizeof(req), vid, vid_end,
 				      tun_id_start, tun_id_end);
 	else
+		/*指定vid,vid_end*/
 		add_vlan_info_range(&req.n, sizeof(req), vid, vid_end,
 				    vinfo.flags);
 
 	addattr_nest_end(&req.n, afspec);
 
+	/*此消息下去后，kernel对应的netdev的ndo_bridge_setlink回调会被触发*/
 	if (rtnl_talk(&rth, &req.n, NULL) < 0)
 		return -1;
 
@@ -293,6 +312,7 @@ static int vlan_option_set(int argc, char **argv)
 				return -1;
 			}
 		} else if (strcmp(*argv, "vid") == 0) {
+			/*指定vlan及一组vlan*/
 			short vid_end = -1;
 			char *p;
 
