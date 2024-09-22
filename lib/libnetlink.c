@@ -1027,6 +1027,7 @@ static int __rtnl_talk_iov(struct rtnl_handle *rtnl, struct iovec *iov,
 	//发送netlink消息
 	status = sendmsg(rtnl->fd, &msg, 0);
 	if (status < 0) {
+		/*talk失败*/
 		perror("Cannot talk to rtnetlink");
 		return -1;
 	}

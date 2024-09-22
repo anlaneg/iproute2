@@ -14,6 +14,7 @@
 #include <bpf/bpf.h>
 #endif
 
+/*bpf系统调用包装*/
 int bpf(int cmd, union bpf_attr *attr, unsigned int size)
 {
 #ifdef __NR_bpf

@@ -562,6 +562,7 @@ void size_columns(unsigned int cols[], unsigned int n, ...)
 		for (len = 1; val > 9; len++, val /= 10)
 			/* nothing */;
 		if (len > cols[i])
+			/*当前数字超过历史列宽，更新列宽*/
 			cols[i] = len;
 	}
 
@@ -679,7 +680,7 @@ static void print_vf_stats64(FILE *fp, struct rtattr *vfstats)
 	}
 }
 
-void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
+void print_stats64(FILE *fp, struct rtnl_link_stats64 *s/*统计计数*/,
 		   const struct rtattr *carrier_changes,
 		   const char *what)
 {
@@ -776,6 +777,7 @@ void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
 	} else {
 		uint64_t zero64 = 0;
 
+		/*收集每一列对应的数字长度*/
 		size_columns(cols, ARRAY_SIZE(cols),
 			     s->rx_bytes, s->rx_packets, s->rx_errors,
 			     s->rx_dropped, s->rx_missed_errors,
@@ -800,6 +802,7 @@ void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
 				     s->tx_heartbeat_errors, cc, zero64);
 		}
 
+		/*输出rx的列宽格式*/
 		/* RX stats */
 		fprintf(fp, "    RX: %*s %*s %*s %*s %*s %*s %*s%s",
 			cols[0] - 4, "bytes", cols[1], "packets",
@@ -807,6 +810,7 @@ void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
 			cols[4], "missed", cols[5], "mcast",
 			cols[6], s->rx_compressed ? "compressed" : "", _SL_);
 
+		/*输出rx方向统计数据*/
 		fprintf(fp, "    ");
 		print_num(fp, cols[0], s->rx_bytes);
 		print_num(fp, cols[1], s->rx_packets);
@@ -818,6 +822,7 @@ void print_stats64(FILE *fp, struct rtnl_link_stats64 *s,
 			print_num(fp, cols[6], s->rx_compressed);
 
 		/* RX error stats */
+		/*指定了-stats参数，输出列宽格式，及数据*/
 		if (show_stats > 1) {
 			fprintf(fp, "%s", _SL_);
 			fprintf(fp, "    RX errors:%*s %*s %*s %*s %*s %*s%*s%*s%s",
@@ -887,6 +892,7 @@ static void __print_link_stats(FILE *fp, struct rtattr *tb[])
 	struct rtnl_link_stats64 _s, *s = &_s;
 	int ret;
 
+	/*转换统计计数到s结构体*/
 	ret = get_rtnl_link_stats_rta(s, tb);
 	if (ret < 0)
 		return;
@@ -1334,6 +1340,7 @@ int print_linkinfo(struct nlmsghdr *n, void *arg)
 		xdp_dump(fp, tb[IFLA_XDP], true, true);
 
 	if (do_link && show_stats) {
+		/*显示link统计信息*/
 		print_nl();
 		__print_link_stats(fp, tb);
 	}
@@ -2240,7 +2247,7 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 				usage();
 			if (filter_dev)
 				duparg2("dev", *argv);
-			filter_dev = *argv;
+			filter_dev = *argv;/*指明针对的设备*/
 		}
 		argv++; argc--;
 	}
@@ -2286,6 +2293,7 @@ static int ipaddr_list_flush_or_save(int argc, char **argv, int action)
 	 * the link device
 	 */
 	if (filter_dev && filter.group == -1 && do_link == 1) {
+		/*显示指定link*/
 		if (iplink_get(filter_dev, RTEXT_FILTER_VF) < 0) {
 			perror("Cannot send link get request");
 			delete_json_obj();

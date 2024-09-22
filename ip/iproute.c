@@ -409,6 +409,7 @@ static void print_rt_pref(FILE *fp, unsigned int pref)
 	}
 }
 
+/*通过ifindex显示接口名称*/
 void print_rta_ifidx(FILE *fp, __u32 ifidx, const char *prefix)
 {
 	const char *ifname = ll_index_to_name(ifidx);
@@ -2132,17 +2133,20 @@ static int iproute_get(int argc, char **argv)
 				       *argv);
 			addattr8(&req.n, sizeof(req), RTA_IP_PROTO, ipproto);
 		} else {
+			/*遇到了不认识的关键字，优先怀疑是用户提供的地址*/
 			inet_prefix addr;
 
 			if (strcmp(*argv, "to") == 0) {
-				NEXT_ARG();
+				NEXT_ARG();/*跳过to关键字*/
 			}
 			if (matches(*argv, "help") == 0)
 				usage();
+			/*将用户提供的参数转换为ip地址*/
 			get_prefix(&addr, *argv, req.r.rtm_family);
 			if (req.r.rtm_family == AF_UNSPEC)
 				req.r.rtm_family = addr.family;
 			if (addr.bytelen)
+				/*添加地址*/
 				addattr_l(&req.n, sizeof(req),
 					  RTA_DST, &addr.data, addr.bytelen);
 			if (req.r.rtm_family == AF_INET && addr.bitlen != 32) {
@@ -2195,6 +2199,7 @@ static int iproute_get(int argc, char **argv)
 	if (fib_match)
 		req.r.rtm_flags |= RTM_F_FIB_MATCH;
 
+	/*发送请求，并与netlink进行talk*/
 	if (rtnl_talk(&rth, &req.n, &answer) < 0)
 		return -2;
 

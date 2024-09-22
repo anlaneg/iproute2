@@ -297,12 +297,13 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			err = vdpa_argv_str(vdpa, argc, argv, &namestr);
 			if (err)
 				return err;
-			opts->vdev_name = namestr;
+			opts->vdev_name = namestr;/*设备名称*/
 			NEXT_ARG_FWD();
 			o_found |= VDPA_OPT_VDEV_NAME;
 		} else if ((matches(*argv, "mgmtdev")  == 0) &&
 			   (o_all & VDPA_OPT_VDEV_MGMTDEV_HANDLE)) {
 			NEXT_ARG_FWD();
+			/*解析bus-name, mgmtdev name*/
 			err = vdpa_argv_handle(vdpa, argc, argv,
 					       &opts->mdev_bus_name,
 					       &opts->mdev_name);
@@ -313,6 +314,7 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			o_found |= VDPA_OPT_VDEV_MGMTDEV_HANDLE;
 		} else if ((strcmp(*argv, "mac") == 0) &&
 			   (o_all & VDPA_OPT_VDEV_MAC)) {
+			/*设置mac*/
 			NEXT_ARG_FWD();
 			err = vdpa_argv_mac(vdpa, argc, argv, opts->mac);
 			if (err)
@@ -322,6 +324,7 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			o_found |= VDPA_OPT_VDEV_MAC;
 		} else if ((strcmp(*argv, "mtu") == 0) &&
 			   (o_all & VDPA_OPT_VDEV_MTU)) {
+			/*设置mtu*/
 			NEXT_ARG_FWD();
 			err = vdpa_argv_u16(vdpa, argc, argv, &opts->mtu);
 			if (err)
@@ -331,6 +334,7 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			o_found |= VDPA_OPT_VDEV_MTU;
 		} else if ((matches(*argv, "max_vqp")  == 0) && (o_optional & VDPA_OPT_MAX_VQP)) {
 			NEXT_ARG_FWD();
+			/*设置max vqp size*/
 			err = vdpa_argv_u16(vdpa, argc, argv, &opts->max_vqp);
 			if (err)
 				return err;
@@ -339,6 +343,7 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			o_found |= VDPA_OPT_MAX_VQP;
 		} else if (!strcmp(*argv, "qidx") &&
 			   (o_optional & VDPA_OPT_QUEUE_INDEX)) {
+			/*设置操纵的队列idx*/
 			NEXT_ARG_FWD();
 			err = vdpa_argv_u32(vdpa, argc, argv, &opts->queue_idx);
 			if (err)
@@ -348,6 +353,7 @@ static int vdpa_argv_parse(struct vdpa *vdpa, int argc, char **argv,
 			o_found |= VDPA_OPT_QUEUE_INDEX;
 		} else if (!strcmp(*argv, "device_features") &&
 			   (o_optional & VDPA_OPT_VDEV_FEATURES)) {
+			/*设置dev的features列表*/
 			NEXT_ARG_FWD();
 			err = vdpa_argv_u64_hex(vdpa, argc, argv,
 						&opts->device_features);
@@ -609,6 +615,7 @@ static int cmd_mgmtdev_show(struct vdpa *vdpa, int argc, char **argv)
 	if (argc == 0)
 		flags |= NLM_F_DUMP;
 
+	/*发送命令获取所有mgmtdev信息*/
 	nlh = mnlu_gen_socket_cmd_prepare(&vdpa->nlg, VDPA_CMD_MGMTDEV_GET,
 					  flags);
 	if (argc > 0) {
@@ -631,6 +638,7 @@ static int cmd_mgmtdev(struct vdpa *vdpa, int argc, char **argv)
 		return 0;
 	} else if (matches(*argv, "show") == 0 ||
 		   matches(*argv, "list") == 0) {
+		/*显示系统中所有mgmtdev*/
 		return cmd_mgmtdev_show(vdpa, argc - 1, argv + 1);
 	}
 	fprintf(stderr, "Command \"%s\" not found\n", *argv);
@@ -1018,12 +1026,15 @@ static int cmd_dev(struct vdpa *vdpa, int argc, char **argv)
 		   matches(*argv, "list") == 0) {
 		return cmd_dev_show(vdpa, argc - 1, argv + 1);
 	} else if (matches(*argv, "add") == 0) {
+		/*添加vdpa设备*/
 		return cmd_dev_add(vdpa, argc - 1, argv + 1);
 	} else if (matches(*argv, "del") == 0) {
 		return cmd_dev_del(vdpa, argc - 1, argv + 1);
 	} else if (matches(*argv, "config") == 0) {
+		/*配置vdpa设备*/
 		return cmd_dev_config(vdpa, argc - 1, argv + 1);
 	} else if (!strcmp(*argv, "vstats")) {
+		/*获取设备的统计信息*/
 		return cmd_dev_vstats(vdpa, argc - 1, argv + 1);
 	}
 	fprintf(stderr, "Command \"%s\" not found\n", *argv);
@@ -1041,9 +1052,10 @@ static void help(void)
 static int vdpa_cmd(struct vdpa *vdpa, int argc, char **argv)
 {
 	if (!argc || matches(*argv, "help") == 0) {
-		help();
+		help();/*显示帮助信息*/
 		return 0;
 	} else if (matches(*argv, "mgmtdev") == 0) {
+		/*mgmtdev相关的命令*/
 		return cmd_mgmtdev(vdpa, argc - 1, argv + 1);
 	} else if (matches(*argv, "dev") == 0) {
 		return cmd_dev(vdpa, argc - 1, argv + 1);
@@ -1149,6 +1161,7 @@ int main(int argc, char **argv)
 		goto vdpa_free;
 	}
 
+	/*vdpa命令入口*/
 	err = vdpa_cmd(vdpa, argc, argv);
 	if (err) {
 		ret = EXIT_FAILURE;
