@@ -119,7 +119,7 @@ static void usage(void)
 
 static struct
 {
-	unsigned int tb;
+	unsigned int tb;/*要过滤的table id*/
 	int cloned;
 	int flushed;
 	char *flushb;
@@ -767,7 +767,7 @@ int print_route(struct nlmsghdr *n, void *arg)
 	host_len = af_bit_len(r->rtm_family);
 
 	parse_rtattr(tb, RTA_MAX, RTM_RTA(r), len);
-	table = rtm_get_table(r, tb);
+	table = rtm_get_table(r, tb);/*路由中包含的table*/
 
 	if (!filter_nlmsg(n, tb, host_len))
 		return 0;
@@ -797,6 +797,7 @@ int print_route(struct nlmsghdr *n, void *arg)
 
 	if ((r->rtm_type != RTN_UNICAST || show_details > 0) &&
 	    (!filter.typemask || (filter.typemask & (1 << r->rtm_type))))
+		/*显示路由类型，例如local,unicast,multicast*/
 		print_string(PRINT_ANY, "type", "%s ",
 			     rtnl_rtntype_n2a(r->rtm_type, b1, sizeof(b1)));
 
@@ -806,20 +807,26 @@ int print_route(struct nlmsghdr *n, void *arg)
 		color = ifa_family_color(family);
 
 		if (r->rtm_dst_len != host_len) {
+			/*非全掩码，输出地址+掩码*/
 			snprintf(b1, sizeof(b1),
 				 "%s/%u", rt_addr_n2a_rta(family, tb[RTA_DST]),
 				 r->rtm_dst_len);
 		} else {
+			/*全掩码输出*/
 			const char *hostname = format_host_rta_r(family, tb[RTA_DST],
 					  b2, sizeof(b2));
 			if (hostname)
 				strncpy(b1, hostname, sizeof(b1) - 1);
 		}
 	} else if (r->rtm_dst_len) {
+		/*只有掩码长度，输出地址+掩码，地址为零*/
 		snprintf(b1, sizeof(b1), "0/%d ", r->rtm_dst_len);
 	} else {
+		/*地址及掩码均为零的情况，输出default*/
 		strncpy(b1, "default", sizeof(b1));
 	}
+
+	/*输出目的地址*/
 	print_color_string(PRINT_ANY, color,
 			   "dst", "%s ", b1);
 
@@ -838,6 +845,8 @@ int print_route(struct nlmsghdr *n, void *arg)
 			if (hostname)
 				strncpy(b1, hostname, sizeof(b1) - 1);
 		}
+
+		/*输出源地址*/
 		print_color_string(PRINT_ANY, color,
 				   "from", "from %s ", b1);
 	} else if (r->rtm_src_len) {
@@ -861,21 +870,25 @@ int print_route(struct nlmsghdr *n, void *arg)
 			     rtnl_dsfield_n2a(r->rtm_tos, b1, sizeof(b1)));
 	}
 
+	/*如果指明了gateway,则输出via <gateway>*/
 	if (tb[RTA_GATEWAY] && filter.rvia.bitlen != host_len)
 		print_rta_gateway(fp, r->rtm_family, tb[RTA_GATEWAY]);
 
 	if (tb[RTA_VIA])
 		print_rta_via(fp, tb[RTA_VIA]);
 
+	/*指明了oif*/
 	if (tb[RTA_OIF] && filter.oifmask != -1)
 		print_rta_ifidx(fp, rta_getattr_u32(tb[RTA_OIF]), "dev");
 
+	/*如指明table,则输出table*/
 	if (table && (table != RT_TABLE_MAIN || show_details > 0) && !filter.tb)
 		print_string(PRINT_ANY,
 			     "table", "table %s ",
 			     rtnl_rttable_n2a(table, b1, sizeof(b1)));
 
 	if (!(r->rtm_flags & RTM_F_CLONED)) {
+		/*输出协议*/
 		if ((r->rtm_protocol != RTPROT_BOOT || show_details > 0) &&
 		    filter.protocolmask != -1)
 			print_string(PRINT_ANY,
@@ -1709,12 +1722,14 @@ static int iproute_dump_filter(struct nlmsghdr *nlh, int reqlen)
 		rtm->rtm_flags |= RTM_F_CLONED;
 
 	if (filter.tb) {
+		/*添加要过滤的table*/
 		err = addattr32(nlh, reqlen, RTA_TABLE, filter.tb);
 		if (err)
 			return err;
 	}
 
 	if (filter.oif) {
+		/*添加要过滤的出接口*/
 		err = addattr32(nlh, reqlen, RTA_OIF, filter.oif);
 		if (err)
 			return err;
@@ -1806,15 +1821,17 @@ static int iproute_list_flush_or_save(int argc, char **argv, int action)
 	rtnl_filter_t filter_fn;
 
 	if (action == IPROUTE_SAVE) {
+		/*保存路由情况*/
 		if (save_route_prep())
 			return -1;
 
 		filter_fn = save_route;
 	} else
+		/*显示路由情况*/
 		filter_fn = print_route;
 
 	iproute_reset_filter(0);
-	filter.tb = RT_TABLE_MAIN;
+	filter.tb = RT_TABLE_MAIN;/*默认显示main表*/
 
 	if ((action == IPROUTE_FLUSH) && argc <= 0) {
 		fprintf(stderr, "\"ip route flush\" requires arguments.\n");
@@ -1825,6 +1842,7 @@ static int iproute_list_flush_or_save(int argc, char **argv, int action)
 		if (matches(*argv, "table") == 0) {
 			__u32 tid;
 
+			/*解析配置要求的table编号*/
 			NEXT_ARG();
 			if (rtnl_rttable_a2n(&tid, *argv)) {
 				if (strcmp(*argv, "all") == 0) {
@@ -1837,7 +1855,7 @@ static int iproute_list_flush_or_save(int argc, char **argv, int action)
 					invarg("table id value is invalid\n", *argv);
 				}
 			} else
-				filter.tb = tid;
+				filter.tb = tid;/*要显示的table*/
 		} else if (matches(*argv, "vrf") == 0) {
 			__u32 tid;
 
@@ -2021,7 +2039,7 @@ static int iproute_list_flush_or_save(int argc, char **argv, int action)
 	return 0;
 }
 
-
+/*此函数负责kernel路由查询*/
 static int iproute_get(int argc, char **argv)
 {
 	struct {
@@ -2067,11 +2085,11 @@ static int iproute_get(int argc, char **argv)
 				req.r.rtm_family = addr.family;
 			if (addr.bytelen)
 				addattr_l(&req.n, sizeof(req), RTA_SRC,
-					  &addr.data, addr.bytelen);
+					  &addr.data, addr.bytelen);/*设置源地址*/
 			req.r.rtm_src_len = addr.bitlen;
 		} else if (matches(*argv, "iif") == 0) {
 			NEXT_ARG();
-			idev = *argv;
+			idev = *argv;/*设置入口设备*/
 		} else if (matches(*argv, "mark") == 0) {
 			NEXT_ARG();
 			if (get_unsigned(&mark, *argv, 0))
@@ -2079,7 +2097,7 @@ static int iproute_get(int argc, char **argv)
 		} else if (matches(*argv, "oif") == 0 ||
 			   strcmp(*argv, "dev") == 0) {
 			NEXT_ARG();
-			odev = *argv;
+			odev = *argv;/*设置出口设备*/
 		} else if (matches(*argv, "notify") == 0) {
 			req.r.rtm_flags |= RTM_F_NOTIFY;
 		} else if (matches(*argv, "connected") == 0) {
@@ -2097,7 +2115,7 @@ static int iproute_get(int argc, char **argv)
 				invarg("invalid UID\n", *argv);
 			addattr32(&req.n, sizeof(req), RTA_UID, uid);
 		} else if (matches(*argv, "fibmatch") == 0) {
-			fib_match = 1;
+			fib_match = 1;/*???这个的作用是啥*/
 		} else if (strcmp(*argv, "as") == 0) {
 			inet_prefix addr;
 
@@ -2115,14 +2133,14 @@ static int iproute_get(int argc, char **argv)
 			NEXT_ARG();
 			if (get_be16(&sport, *argv, 0))
 				invarg("invalid sport\n", *argv);
-			addattr16(&req.n, sizeof(req), RTA_SPORT, sport);
+			addattr16(&req.n, sizeof(req), RTA_SPORT, sport);/*添加源port*/
 		} else if (matches(*argv, "dport") == 0) {
 			__be16 dport;
 
 			NEXT_ARG();
 			if (get_be16(&dport, *argv, 0))
 				invarg("invalid dport\n", *argv);
-			addattr16(&req.n, sizeof(req), RTA_DPORT, dport);
+			addattr16(&req.n, sizeof(req), RTA_DPORT, dport);/*添加目的port*/
 		} else if (matches(*argv, "ipproto") == 0) {
 			int ipproto;
 
@@ -2131,6 +2149,7 @@ static int iproute_get(int argc, char **argv)
 			if (ipproto < 0)
 				invarg("Invalid \"ipproto\" value\n",
 				       *argv);
+			/*添加协议号*/
 			addattr8(&req.n, sizeof(req), RTA_IP_PROTO, ipproto);
 		} else {
 			/*遇到了不认识的关键字，优先怀疑是用户提供的地址*/
@@ -2146,7 +2165,7 @@ static int iproute_get(int argc, char **argv)
 			if (req.r.rtm_family == AF_UNSPEC)
 				req.r.rtm_family = addr.family;
 			if (addr.bytelen)
-				/*添加地址*/
+				/*添加目的地址*/
 				addattr_l(&req.n, sizeof(req),
 					  RTA_DST, &addr.data, addr.bytelen);
 			if (req.r.rtm_family == AF_INET && addr.bitlen != 32) {
@@ -2167,6 +2186,7 @@ static int iproute_get(int argc, char **argv)
 	}
 
 	if (!address_found) {
+		/*未指定目的地址*/
 		fprintf(stderr, "need at least a destination address\n");
 		return -1;
 	}
@@ -2178,13 +2198,13 @@ static int iproute_get(int argc, char **argv)
 			idx = ll_name_to_index(idev);
 			if (!idx)
 				return nodev(idev);
-			addattr32(&req.n, sizeof(req), RTA_IIF, idx);
+			addattr32(&req.n, sizeof(req), RTA_IIF, idx);/*指明入接口*/
 		}
 		if (odev) {
 			idx = ll_name_to_index(odev);
 			if (!idx)
 				return nodev(odev);
-			addattr32(&req.n, sizeof(req), RTA_OIF, idx);
+			addattr32(&req.n, sizeof(req), RTA_OIF, idx);/*指明出接口*/
 		}
 	}
 	if (mark)
@@ -2195,9 +2215,9 @@ static int iproute_get(int argc, char **argv)
 
 	/* Only IPv4 supports the RTM_F_LOOKUP_TABLE flag */
 	if (req.r.rtm_family == AF_INET)
-		req.r.rtm_flags |= RTM_F_LOOKUP_TABLE;
+		req.r.rtm_flags |= RTM_F_LOOKUP_TABLE;/*只有ipv4支持此标记*/
 	if (fib_match)
-		req.r.rtm_flags |= RTM_F_FIB_MATCH;
+		req.r.rtm_flags |= RTM_F_FIB_MATCH;/*指明查询fib表*/
 
 	/*发送请求，并与netlink进行talk*/
 	if (rtnl_talk(&rth, &req.n, &answer) < 0)
@@ -2423,6 +2443,7 @@ int do_iproute(int argc, char **argv)
 				      argc-1, argv+1);
 	if (matches(*argv, "list") == 0 || matches(*argv, "show") == 0
 	    || matches(*argv, "lst") == 0)
+		/*显示路由*/
 		return iproute_list_flush_or_save(argc-1, argv+1, IPROUTE_LIST);
 	if (matches(*argv, "get") == 0)
 	    /*路由查询*/

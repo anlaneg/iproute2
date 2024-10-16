@@ -960,7 +960,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 			fprintf(stderr, "Warning: route NAT is deprecated\n");
 			addattr32(&req.n, sizeof(req), RTA_GATEWAY,
 				  get_addr32(*argv));
-			req.frh.action = RTN_NAT;
+			req.frh.action = RTN_NAT;/*指定做nat*/
 		} else if (strcmp(*argv, "ipproto") == 0) {
 			/*指明要应用的l3层协议*/
 			int ipproto;
@@ -1022,7 +1022,7 @@ static int iprule_modify(int cmd, int argc, char **argv)
 				//通过nop来支持匹配，但不做动作
 				type = FR_ACT_NOP;
 			else if (rtnl_rtntype_a2n(&type, *argv))
-				//指定要命中的路由类型
+				//采用action指定要命中的路由类型
 				invarg("Failed to parse rule type", *argv);
 			req.frh.action = type;
 			table_ok = 1;

@@ -106,6 +106,7 @@ static void dev_print_caps(struct rd *rd, struct nlattr **tb)
 	close_json_array(PRINT_ANY, ">");
 }
 
+/*显示fw版本*/
 static void dev_print_fw(struct rd *rd, struct nlattr **tb)
 {
 	const char *str;
@@ -235,6 +236,7 @@ static int dev_no_args(struct rd *rd)
 	uint32_t seq;
 	int ret;
 
+	/*发送netlink消息，获取指定rdma设备的详情*/
 	rd_prepare_msg(rd, RDMA_NLDEV_CMD_GET,
 		       &seq, (NLM_F_REQUEST | NLM_F_ACK));
 	mnl_attr_put_u32(rd->nlh, RDMA_NLDEV_ATTR_DEV_INDEX, rd->dev_idx);
@@ -242,6 +244,7 @@ static int dev_no_args(struct rd *rd)
 	if (ret)
 		return ret;
 
+	/*解析消息响应*/
 	ret = rd_recv_msg(rd, dev_parse_cb, rd, seq);
 	return ret;
 }
@@ -354,9 +357,10 @@ static int dev_one_set(struct rd *rd)
 	return rd_exec_cmd(rd, cmds, "parameter");
 }
 
+/*显示rdma设备*/
 static int dev_show(struct rd *rd)
 {
-	return rd_exec_dev(rd, dev_one_show);
+	return rd_exec_dev(rd, dev_one_show/*显示具体的一个dev信息*/);
 }
 
 static int dev_set(struct rd *rd)
