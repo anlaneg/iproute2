@@ -68,7 +68,7 @@ static int rd_init(struct rd *rd, char *filename)
 
 	/*dump系统中所有ib设备*/
 	rd_prepare_msg(rd, RDMA_NLDEV_CMD_GET,
-		       &seq, (NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP));
+		       &seq, (NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP/*指明dump*/));
 	ret = rd_send_msg(rd);
 	if (ret)
 		return ret;
@@ -102,16 +102,17 @@ int main(int argc, char **argv)
 	bool show_raw = false;
 	bool force = false;
 	struct rd rd = {};
-	char *filename;
+	char *filename;/*当前进程名称*/
 	int opt;
 	int err;
-	/*当前进程名称*/
+	/*取当前进程名称*/
 	filename = basename(argv[0]);
 
 	while ((opt = getopt_long(argc, argv, ":Vhdrpjfb:",
 				  long_options, NULL)) >= 0) {
 		switch (opt) {
 		case 'V':
+			/*显示版本*/
 			printf("%s utility, iproute2-%s\n",
 			       filename, version);
 			return EXIT_SUCCESS;
@@ -137,6 +138,7 @@ int main(int argc, char **argv)
 			batch_file = optarg;
 			break;
 		case 'h':
+			/*显示帮助信息*/
 			help(filename);
 			return EXIT_SUCCESS;
 		case ':':
@@ -158,7 +160,7 @@ int main(int argc, char **argv)
 	rd.pretty_output = pretty;
 	rd.show_raw = show_raw;
 
-	/*加载系统ib设备*/
+	/*加载系统所有ib设备*/
 	err = rd_init(&rd, filename);
 	if (err)
 		goto out;

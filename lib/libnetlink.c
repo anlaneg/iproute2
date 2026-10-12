@@ -796,29 +796,32 @@ static int rtnl_dump_error(const struct rtnl_handle *rth,
 	return -1;
 }
 
+/*netlink消息收取*/
 static int __rtnl_recvmsg(int fd, struct msghdr *msg, int flags)
 {
 	int len;
 
 	do {
-		len = recvmsg(fd, msg, flags);
+		len = recvmsg(fd, msg, flags);/*自fd收取消息*/
 	} while (len < 0 && (errno == EINTR || errno == EAGAIN));
 
 	if (len < 0) {
+		/*收取失败*/
 		fprintf(stderr, "netlink receive error %s (%d)\n",
 			strerror(errno), errno);
 		return -errno;
 	}
 
 	if (len == 0) {
+		/*EOF触发*/
 		fprintf(stderr, "EOF on netlink\n");
 		return -ENODATA;
 	}
 
-	return len;
+	return len;/*实际收取长度*/
 }
 
-static int rtnl_recvmsg(int fd, struct msghdr *msg, char **answer)
+static int rtnl_recvmsg(int fd, struct msghdr *msg, char **answer/*出参，不为NULL时返回收取到的内容（需要释放）*/)
 {
 	struct iovec *iov = msg->msg_iov;
 	char *buf;
@@ -829,11 +832,12 @@ static int rtnl_recvmsg(int fd, struct msghdr *msg, char **answer)
 
 	len = __rtnl_recvmsg(fd, msg, MSG_PEEK | MSG_TRUNC);
 	if (len < 0)
-		return len;
+		return len;/*返回错误*/
 
+	/*如上示iov->iov_len值为0，且指供了MSG_TRUNC标记，这里返回的len将为报文实际长度*/
 	if (len < 32768)
 		len = 32768;
-	buf = malloc(len);
+	buf = malloc(len);/*申请实际长度*/
 	if (!buf) {
 		fprintf(stderr, "malloc error: not enough buffer\n");
 		return -ENOMEM;
@@ -842,12 +846,13 @@ static int rtnl_recvmsg(int fd, struct msghdr *msg, char **answer)
 	iov->iov_base = buf;
 	iov->iov_len = len;
 
-	len = __rtnl_recvmsg(fd, msg, 0);
+	len = __rtnl_recvmsg(fd, msg, 0);/*填写实际长度及buffer，再收取一次*/
 	if (len < 0) {
 		free(buf);
 		return len;
 	}
 
+	/*如果提供了naswer,则返回收取到的内容，否则释放掉收取到的内容，返回收取长度*/
 	if (answer)
 		*answer = buf;
 	else
@@ -876,10 +881,11 @@ static int rtnl_dump_filter_l(struct rtnl_handle *rth,
 		int found_done = 0;
 		int msglen = 0;
 
-		status = rtnl_recvmsg(rth->fd, &msg, &buf);
+		status = rtnl_recvmsg(rth->fd, &msg, &buf);/*收取消息*/
 		if (status < 0)
-			return status;
+			return status;/*收取时出错*/
 
+		/*dump到文件*/
 		if (rth->dump_fp)
 			fwrite(buf, 1, NLMSG_ALIGN(status), rth->dump_fp);
 
@@ -902,6 +908,7 @@ static int rtnl_dump_filter_l(struct rtnl_handle *rth,
 					dump_intr = 1;
 
 				if (h->nlmsg_type == NLMSG_DONE) {
+					/*遇到done标记，dump结束*/
 					err = rtnl_dump_done(h, a);
 					if (err < 0) {
 						free(buf);
@@ -932,10 +939,10 @@ static int rtnl_dump_filter_l(struct rtnl_handle *rth,
 				}
 
 skip_it:
-				h = NLMSG_NEXT(h, msglen);
+				h = NLMSG_NEXT(h, msglen);/*取下一段*/
 			}
 		}
-		free(buf);
+		free(buf);/*释放消息*/
 
 		if (found_done) {
 			if (dump_intr)
@@ -944,13 +951,14 @@ skip_it:
 			return 0;
 		}
 
+		/*消息体非正常终止，比如消息截短或者消息体封装有误*/
 		if (msg.msg_flags & MSG_TRUNC) {
 			fprintf(stderr, "Message truncated\n");
-			continue;
+			continue;/*忽略*/
 		}
 		if (msglen) {
 			fprintf(stderr, "!!!Remnant of size %d\n", msglen);
-			exit(1);
+			exit(1);/*长度有误，退出*/
 		}
 	}
 }
@@ -979,8 +987,8 @@ int rtnl_dump_filter_errhndlr_nc(struct rtnl_handle *rth,
 {
 	const struct rtnl_dump_filter_arg a[] = {
 		{
-			.filter = filter, .arg1 = arg1,
-			.errhndlr = errhndlr, .arg2 = arg2,
+			.filter = filter/*dump项处理函数*/, .arg1 = arg1,
+			.errhndlr = errhndlr/*dump出错出理函数*/, .arg2 = arg2,
 			.nc_flags = nc_flags,
 		},
 		{ },
@@ -1038,14 +1046,15 @@ static int __rtnl_talk_iov(struct rtnl_handle *rtnl, struct iovec *iov,
 	i = 0;
 	while (1) {
 next:
-		//获取响应
+		//获取响应，并将响应内容存在buf中
 		status = rtnl_recvmsg(rtnl->fd, &msg, &buf);
 		++i;
 
 		if (status < 0)
-			return status;
+			return status;/*返回错误*/
 
 		if (msg.msg_namelen != sizeof(nladdr)) {
+			/*地址长度与预期不符，退出*/
 			fprintf(stderr,
 				"sender address length == %d\n",
 				msg.msg_namelen);
@@ -1057,10 +1066,12 @@ next:
 
 			if (l < 0 || len > status) {
 				if (msg.msg_flags & MSG_TRUNC) {
+					/*消息是被截短过的，处理失败*/
 					fprintf(stderr, "Truncated message\n");
 					free(buf);
 					return -1;
 				}
+				/*消息未被截断，但长度有误，未知错误，程序退出*/
 				fprintf(stderr,
 					"!!!malformed message: len=%d\n",
 					len);
@@ -1122,10 +1133,11 @@ next:
 			fprintf(stderr, "Unexpected reply!!!\n");
 
 			status -= NLMSG_ALIGN(len);
-			h = (struct nlmsghdr *)((char *)h + NLMSG_ALIGN(len));
+			h = (struct nlmsghdr *)((char *)h + NLMSG_ALIGN(len));/*检查下一段*/
 		}
 		free(buf);
 
+		/*响应消息体在遍历过程中发现消息长度有误，如非trunc情况，则退出*/
 		if (msg.msg_flags & MSG_TRUNC) {
 			fprintf(stderr, "Message truncated\n");
 			continue;

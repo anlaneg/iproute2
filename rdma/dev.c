@@ -197,10 +197,11 @@ static void dev_print_dev_proto(struct rd *rd, struct nlattr **tb)
 	if (!tb[RDMA_NLDEV_ATTR_DEV_PROTOCOL])
 		return;
 
-	str = mnl_attr_get_str(tb[RDMA_NLDEV_ATTR_DEV_PROTOCOL]);
+	str = mnl_attr_get_str(tb[RDMA_NLDEV_ATTR_DEV_PROTOCOL]);/*协议类型*/
 	print_color_string(PRINT_ANY, COLOR_NONE, "protocol", "protocol %s ", str);
 }
 
+/*解析ib设备的详细信息*/
 static int dev_parse_cb(const struct nlmsghdr *nlh, void *data)
 {
 	struct nlattr *tb[RDMA_NLDEV_ATTR_MAX] = {};
@@ -214,13 +215,14 @@ static int dev_parse_cb(const struct nlmsghdr *nlh, void *data)
 	open_json_object(NULL);
 	idx =  mnl_attr_get_u32(tb[RDMA_NLDEV_ATTR_DEV_INDEX]);
 	name = mnl_attr_get_str(tb[RDMA_NLDEV_ATTR_DEV_NAME]);
+	/*ib设备索引及名称*/
 	print_color_uint(PRINT_ANY, COLOR_NONE, "ifindex", "%u: ", idx);
 	print_color_string(PRINT_ANY, COLOR_NONE, "ifname", "%s: ", name);
 
-	dev_print_node_type(rd, tb);
+	dev_print_node_type(rd, tb);/*节点类型*/
 	dev_print_dev_proto(rd, tb);
 	dev_print_fw(rd, tb);
-	dev_print_node_guid(rd, tb);
+	dev_print_node_guid(rd, tb);/*显示guid*/
 	dev_print_sys_image_guid(rd, tb);
 	if (rd->show_details) {
 		dev_print_dim_setting(rd, tb);
@@ -270,8 +272,8 @@ static int dev_set_name(struct rd *rd)
 
 	rd_prepare_msg(rd, RDMA_NLDEV_CMD_SET,
 		       &seq, (NLM_F_REQUEST | NLM_F_ACK));
-	mnl_attr_put_u32(rd->nlh, RDMA_NLDEV_ATTR_DEV_INDEX, rd->dev_idx);
-	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_DEV_NAME, rd_argv(rd));
+	mnl_attr_put_u32(rd->nlh, RDMA_NLDEV_ATTR_DEV_INDEX, rd->dev_idx);/*指明ib设备索引*/
+	mnl_attr_put_strz(rd->nlh, RDMA_NLDEV_ATTR_DEV_NAME, rd_argv(rd));/*设置ib设备名称*/
 
 	return rd_sendrecv_msg(rd, seq);
 }
@@ -360,7 +362,7 @@ static int dev_one_set(struct rd *rd)
 /*显示rdma设备*/
 static int dev_show(struct rd *rd)
 {
-	return rd_exec_dev(rd, dev_one_show/*显示具体的一个dev信息*/);
+	return rd_exec_dev(rd, dev_one_show/*显示具体的一个ib dev信息*/);
 }
 
 static int dev_set(struct rd *rd)

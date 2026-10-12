@@ -520,7 +520,7 @@ int rd_dev_init_cb(const struct nlmsghdr *nlh, void *data)
 
 	mnl_attr_parse(nlh, 0, rd_attr_cb, tb);
 	if (!tb[RDMA_NLDEV_ATTR_DEV_NAME] || !tb[RDMA_NLDEV_ATTR_DEV_INDEX])
-		return MNL_CB_ERROR;
+		return MNL_CB_ERROR;/*未指明ib设备名称及dev index*/
 	if (!tb[RDMA_NLDEV_ATTR_PORT_INDEX]) {
 		pr_err("This tool doesn't support switches yet\n");
 		return MNL_CB_ERROR;

@@ -336,7 +336,7 @@ struct dl_opts {
 	uint32_t region_snapshot_id;
 	__u64 region_address;
 	__u64 region_length;
-	const char *flash_file_name;
+	const char *flash_file_name;/*指定flash文件名称*/
 	const char *flash_component;
 	const char *reporter_name;
 	__u64 reporter_graceful_period;
@@ -819,11 +819,13 @@ static int ifname_map_rtnl_port_parse(struct dl *dl, const char *ifname,
 	parse_rtattr_nested(tb, DEVLINK_ATTR_MAX, nest);
 	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
 	    !tb[DEVLINK_ATTR_PORT_INDEX])
-		return -ENOENT;
+		return -ENOENT;/*必须包含以上信息*/
 
+	/*取bus name,dev name, port编号*/
 	bus_name = rta_getattr_str(tb[DEVLINK_ATTR_BUS_NAME]);
 	dev_name = rta_getattr_str(tb[DEVLINK_ATTR_DEV_NAME]);
 	port_index = rta_getattr_u32(tb[DEVLINK_ATTR_PORT_INDEX]);
+	/*记录ifname与以上三个值的映射*/
 	return ifname_map_add(dl, ifname, bus_name, dev_name, port_index);
 }
 
@@ -832,7 +834,7 @@ static int ifname_map_rtnl_init(struct dl *dl, const char *ifname)
 	struct iplink_req req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg)),
 		.n.nlmsg_flags = NLM_F_REQUEST,
-		.n.nlmsg_type = RTM_GETLINK,
+		.n.nlmsg_type = RTM_GETLINK,/*取此ifname的link信息*/
 		.i.ifi_family = AF_UNSPEC,
 	};
 	struct rtattr *tb[IFLA_MAX + 1];
@@ -849,7 +851,7 @@ static int ifname_map_rtnl_init(struct dl *dl, const char *ifname)
 
 	addattr_l(&req.n, sizeof(req),
 		  !check_ifname(ifname) ? IFLA_IFNAME : IFLA_ALT_IFNAME,
-		  ifname, strlen(ifname) + 1);
+		  ifname, strlen(ifname) + 1);/*指明ifname*/
 
 	if (rtnl_talk(&rth, &req.n, &n) < 0) {
 		err = -EINVAL;
@@ -857,6 +859,7 @@ static int ifname_map_rtnl_init(struct dl *dl, const char *ifname)
 	}
 
 	if (n->nlmsg_type != RTM_NEWLINK) {
+		/*RTM_GETLINK的响应为RTM_NEWLINK,如type不相等，则报错*/
 		err = -EINVAL;
 		goto out;
 	}
@@ -872,10 +875,12 @@ static int ifname_map_rtnl_init(struct dl *dl, const char *ifname)
 
 	parse_rtattr_flags(tb, IFLA_MAX, IFLA_RTA(ifi), len, NLA_F_NESTED);
 	if (!tb[IFLA_DEVLINK_PORT]) {
+		/*响应消息中没有包含devlink port信息*/
 		err = -EOPNOTSUPP;
 		goto out;
 	}
 
+	/*解析devlink port信息*/
 	err = ifname_map_rtnl_port_parse(dl, ifname, tb[IFLA_DEVLINK_PORT]);
 
 out:
@@ -935,6 +940,7 @@ static int ifname_map_load(struct dl *dl, const char *ifname)
 	int err;
 
 	if (ifname) {
+		/*指定了接口名称，向kernel请求，建立ifname与bus name,dev name, port index三者之间的映射*/
 		err = ifname_map_rtnl_init(dl, ifname);
 		if (!err)
 			return 0;
@@ -943,6 +949,7 @@ static int ifname_map_load(struct dl *dl, const char *ifname)
 		 */
 	}
 
+	/*未指定ifname或者针对ifname加载失败，通过DEVLINK_GENL_NAME获取所有接口的映射*/
 	err = mnlu_gen_socket_open(&nlg_map, DEVLINK_GENL_NAME,
 				   DEVLINK_GENL_VERSION);
 	if (err)
@@ -964,7 +971,7 @@ static int ifname_map_check_load(struct dl *dl, const char *ifname)
 	int err;
 
 	if (dl->map_loaded)
-		return 0;
+		return 0;/*已加载直接返回*/
 
 	err = ifname_map_load(dl, ifname);
 	if (err) {
@@ -987,6 +994,7 @@ static int ifname_map_lookup(struct dl *dl, const char *ifname,
 	if (err)
 		return err;
 
+	/*通过ifname查找其映射的bus_name,dev_name,port_index*/
 	list_for_each_entry(ifname_map, &dl->ifname_map_list, list) {
 		if (strcmp(ifname, ifname_map->ifname) == 0) {
 			*p_bus_name = ifname_map->bus_name;
@@ -1092,17 +1100,20 @@ static int __dl_argv_handle_port(char *str,
 	char *portstr;
 	int err;
 
+	/*拆成两部分，portstr与handlestr(可能仍有'/')*/
 	err = str_split_by_char(str, &handlestr, &portstr, '/');
 	if (err) {
 		pr_err("Port identification \"%s\" is invalid\n", str);
 		return err;
 	}
+	/*转换为port*/
 	err = get_u32(p_port_index, portstr, 10);
 	if (err) {
 		pr_err("Port index \"%s\" is not a number or not within range\n",
 		       portstr);
 		return err;
 	}
+	/*再拆成bus_name与dev_name*/
 	err = str_split_by_char(handlestr, p_bus_name, p_dev_name, '/');
 	if (err) {
 		pr_err("Port identification \"%s\" is invalid\n", str);
@@ -1117,7 +1128,7 @@ static int __dl_argv_handle_port_ifname(struct dl *dl, char *str,
 {
 	int err;
 
-	err = ifname_map_lookup(dl, str, p_bus_name, p_dev_name,
+	err = ifname_map_lookup(dl, str/*按接口中名称考虑*/, p_bus_name, p_dev_name,
 				p_port_index);
 	if (err) {
 		pr_err("Netdevice \"%s\" not found\n", str);
@@ -1129,19 +1140,22 @@ static int __dl_argv_handle_port_ifname(struct dl *dl, char *str,
 static int dl_argv_handle_port(struct dl *dl, char **p_bus_name,
 			       char **p_dev_name, uint32_t *p_port_index)
 {
-	char *str = dl_argv_next(dl);
+	char *str = dl_argv_next(dl);/*参数可以是接口名称，可以是三者合并的格式串*/
 	unsigned int slash_count;
 
 	if (!str) {
+		/*参数为空，报错*/
 		pr_err("Port identification (\"bus_name/dev_name/port_index\" or \"netdev ifname\") expected.\n");
 		return -EINVAL;
 	}
 	slash_count = get_str_char_count(str, '/');
 	switch (slash_count) {
 	case 0:
+		/*不含'/'符号,按ifname考虑*/
 		return __dl_argv_handle_port_ifname(dl, str, p_bus_name,
 						    p_dev_name, p_port_index);
 	case 2:
+		/*包含两个'/'符号*/
 		return __dl_argv_handle_port(str, p_bus_name,
 					     p_dev_name, p_port_index);
 	default:
@@ -1704,8 +1718,8 @@ static int dl_args_finding_required_validate(uint64_t o_required,
 }
 
 /*本来是若干极简单的函数，奈何作者就喜欢搞的复杂些，还得耐着性子看他上窜下跳地玩，服了。*/
-static int dl_argv_parse(struct dl *dl, uint64_t o_required,
-			 uint64_t o_optional)
+static int dl_argv_parse(struct dl *dl, uint64_t o_required/*要求的选项*/,
+			 uint64_t o_optional/*可选的选项*/)
 {
 	struct dl_opts *opts = &dl->opts;
 	uint64_t o_all = o_required | o_optional;
@@ -1741,6 +1755,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			return err;
 		o_found |= DL_OPT_HANDLE;
 	} else if (o_required & DL_OPT_HANDLEP) {
+		/*解释参数，获得bus_name,dev_name,port index*/
 		err = dl_argv_handle_port(dl, &opts->bus_name, &opts->dev_name,
 					  &opts->port_index);
 		if (err)
@@ -1961,6 +1976,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			o_found |= DL_OPT_REGION_LENGTH;
 		} else if (dl_argv_match(dl, "file") &&
 			   (o_all & DL_OPT_FLASH_FILE_NAME)) {
+			/*通过file命令指定了flash文件名称*/
 			dl_arg_inc(dl);
 			err = dl_argv_str(dl, &opts->flash_file_name);
 			if (err)
@@ -1968,6 +1984,7 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			o_found |= DL_OPT_FLASH_FILE_NAME;
 		} else if (dl_argv_match(dl, "component") &&
 			   (o_all & DL_OPT_FLASH_COMPONENT)) {
+			/*通过component参数指定flash_component*/
 			dl_arg_inc(dl);
 			err = dl_argv_str(dl, &opts->flash_component);
 			if (err)
@@ -1979,9 +1996,11 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			const char *sectionstr;
 
 			dl_arg_inc(dl);
+			/*通过overwrite参数指定sectionstr*/
 			err = dl_argv_str(dl, &sectionstr);
 			if (err)
 				return err;
+			/*由sectionstr再转overwirte mask值*/
 			err = flash_overwrite_section_get(sectionstr,
 							  &opts->overwrite_mask);
 			if (err)
@@ -2462,6 +2481,7 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 		mnl_attr_put_u64(nlh, DEVLINK_ATTR_REGION_CHUNK_LEN,
 				 opts->region_length);
 	if (opts->present & DL_OPT_FLASH_FILE_NAME)
+		/*指明flash文件名称*/
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_FLASH_UPDATE_FILE_NAME,
 				  opts->flash_file_name);
 	if (opts->present & DL_OPT_FLASH_COMPONENT)
@@ -4243,15 +4263,18 @@ static int cmd_dev_flash(struct dl *dl)
 	int err;
 
 	if (dl_argv_match(dl, "help") || dl_no_arg(dl)) {
+		/*显示帮助*/
 		cmd_dev_help();
 		return 0;
 	}
 
+	/*解析参数*/
 	err = dl_argv_parse(dl, DL_OPT_HANDLE | DL_OPT_FLASH_FILE_NAME,
 			    DL_OPT_FLASH_COMPONENT | DL_OPT_FLASH_OVERWRITE);
 	if (err)
 		return err;
 
+	/*触发flash update commamd*/
 	nlh = mnlu_gen_socket_cmd_prepare(&dl->nlg, DEVLINK_CMD_FLASH_UPDATE,
 			       NLM_F_REQUEST | NLM_F_ACK);
 
@@ -4287,7 +4310,7 @@ static int cmd_dev_flash(struct dl *dl)
 
 		close(pipe_r);
 		err = _mnlg_socket_send(&dl->nlg, nlh);
-		cc = write(pipe_w, &err, sizeof(err));
+		cc = write(pipe_w, &err, sizeof(err));/*子进程拿写管道，指出err*/
 		close(pipe_w);
 		exit(cc != sizeof(err));
 	}
@@ -4567,6 +4590,7 @@ static int cmd_dev(struct dl *dl)
 		dl_arg_inc(dl);
 		return cmd_dev_info(dl);
 	} else if (dl_argv_match(dl, "flash")) {
+		/*用于fw相关的命令,devlink dev flash*/
 		dl_arg_inc(dl);
 		return cmd_dev_flash(dl);
 	} else if (dl_argv_match(dl, "selftests")) {

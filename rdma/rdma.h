@@ -49,10 +49,11 @@ struct filter_entry {
 
 struct dev_map {
 	struct list_head list;
-	/*设备名称*/
+	/*ib 设备名称*/
 	char *dev_name;
+	/*port总数*/
 	uint32_t num_ports;
-	/*设备index*/
+	/*ib 设备index*/
 	uint32_t idx;
 };
 
