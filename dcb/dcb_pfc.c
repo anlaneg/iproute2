@@ -33,6 +33,7 @@ static void dcb_pfc_help_show(void)
 	);
 }
 
+/*pfc配置帮助*/
 static void dcb_pfc_help(void)
 {
 	fprintf(stderr,
@@ -56,6 +57,7 @@ static void dcb_pfc_from_array(__u8 array[IEEE_8021QAZ_MAX_TCS], __u8 *pfc_en_p)
 	__u8 pfc_en = 0;
 	int i;
 
+	/*遍历每个tc,如果array[i]为值，则为pfc_en_p打上对应的i号标记*/
 	for (i = 0; i < IEEE_8021QAZ_MAX_TCS; i++) {
 		if (array[i])
 			pfc_en |= 1 << i;
@@ -73,17 +75,17 @@ static int dcb_pfc_parse_mapping_prio_pfc(__u32 key, char *value, void *data)
 
 	dcb_pfc_to_array(pfc_en, pfc->pfc_en);
 
-	enabled = parse_on_off("PFC", value, &ret);
+	enabled = parse_on_off("PFC", value, &ret);/*0为off,1为on*/
 	if (ret)
 		return ret;
 
 	ret = dcb_parse_mapping("PRIO", key, IEEE_8021QAZ_MAX_TCS - 1,
 				"PFC", enabled, -1,
-				dcb_set_u8, pfc_en);
+				dcb_set_u8, pfc_en);/*设置key对应的on/off状态*/
 	if (ret)
 		return ret;
 
-	dcb_pfc_from_array(pfc_en, &pfc->pfc_en);
+	dcb_pfc_from_array(pfc_en, &pfc->pfc_en);/*决定pfc->pfc_en是否开启*/
 	return 0;
 }
 
@@ -146,14 +148,14 @@ static void dcb_pfc_print(const struct dcb *dcb, const struct ieee_pfc *pfc)
 	}
 }
 
-static int dcb_pfc_get(struct dcb *dcb, const char *dev, struct ieee_pfc *pfc)
+static int dcb_pfc_get(struct dcb *dcb, const char *dev, struct ieee_pfc *pfc/*出参，PFC属性结构*/)
 {
-	return dcb_get_attribute(dcb, dev, DCB_ATTR_IEEE_PFC, pfc, sizeof(*pfc));
+	return dcb_get_attribute(dcb, dev, DCB_ATTR_IEEE_PFC/*取PFC属性*/, pfc, sizeof(*pfc));
 }
 
 static int dcb_pfc_set(struct dcb *dcb, const char *dev, const struct ieee_pfc *pfc)
 {
-	return dcb_set_attribute(dcb, dev, DCB_ATTR_IEEE_PFC, pfc, sizeof(*pfc));
+	return dcb_set_attribute(dcb, dev, DCB_ATTR_IEEE_PFC/*设置pfc属性*/, pfc, sizeof(*pfc));
 }
 
 static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **argv)
@@ -162,6 +164,7 @@ static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **ar
 	int ret;
 
 	if (!argc) {
+		/*无参数，显示帮助信息*/
 		dcb_pfc_help_set();
 		return 0;
 	}
@@ -175,6 +178,7 @@ static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **ar
 			dcb_pfc_help_set();
 			return 0;
 		} else if (matches(*argv, "prio-pfc") == 0) {
+			/*用于设置哪些tc开启pfc*/
 			NEXT_ARG();
 			ret = parse_mapping(&argc, &argv, true,
 					    &dcb_pfc_parse_mapping_prio_pfc, &pfc);
@@ -185,6 +189,7 @@ static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **ar
 			continue;
 		} else if (matches(*argv, "macsec-bypass") == 0) {
 			NEXT_ARG();
+			/*控制 PFC 帧是否绕过 MACsec 加密引擎*/
 			pfc.mbc = parse_on_off("macsec-bypass", *argv, &ret);
 			if (ret)
 				return ret;
@@ -196,6 +201,7 @@ static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **ar
 			 * be confusing that 10Kbit does not mean 10240,
 			 * but 1280.
 			 */
+			/*转换delay,链路往返 RTT 对应的比特数，用于计算 RX buffer 的 Xoff 触发水位阈值（headroom 预留）*/
 			if (get_u16(&pfc.delay, *argv, 0)) {
 				fprintf(stderr, "Invalid delay `%s', expected an integer 0..65535\n",
 					*argv);
@@ -210,6 +216,7 @@ static int dcb_cmd_pfc_set(struct dcb *dcb, const char *dev, int argc, char **ar
 		NEXT_ARG_FWD();
 	} while (argc > 0);
 
+	/*执行netlink设置pfc操作*/
 	return dcb_pfc_set(dcb, dev, &pfc);
 }
 
@@ -273,11 +280,11 @@ int dcb_cmd_pfc(struct dcb *dcb, int argc, char **argv)
 	} else if (matches(*argv, "show") == 0) {
 		NEXT_ARG_FWD();
 		return dcb_cmd_parse_dev(dcb, argc, argv,
-					 dcb_cmd_pfc_show, dcb_pfc_help_show);
+					 dcb_cmd_pfc_show/*pfc配置显示*/, dcb_pfc_help_show);
 	} else if (matches(*argv, "set") == 0) {
 		NEXT_ARG_FWD();
 		return dcb_cmd_parse_dev(dcb, argc, argv,
-					 dcb_cmd_pfc_set, dcb_pfc_help_set);
+					 dcb_cmd_pfc_set/*pfc配置设置*/, dcb_pfc_help_set);
 	} else {
 		fprintf(stderr, "What is \"%s\"?\n", *argv);
 		dcb_pfc_help();

@@ -156,7 +156,7 @@ struct ieee_qcn_stats {
  */
 struct ieee_pfc {
 	__u8	pfc_cap;
-	__u8	pfc_en;
+	__u8	pfc_en;/*每个tc的pfc开启标记*/
 	__u8	mbc;
 	__u16	delay;
 	__u64	requests[IEEE_8021QAZ_MAX_TCS];

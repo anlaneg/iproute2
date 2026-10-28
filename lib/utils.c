@@ -1758,18 +1758,19 @@ int do_batch(const char *name, bool force,
 	return ret;
 }
 
-int parse_one_of(const char *msg, const char *realval, const char * const *list,
-		 size_t len, int *p_err)
+int parse_one_of(const char *msg, const char *realval, const char * const *list/*列表串*/,
+		 size_t len/*列表串长度*/, int *p_err)
 {
 	int i;
 
 	for (i = 0; i < len; i++) {
-		if (list[i] && matches(realval, list[i]) == 0) {
+		if (list[i] && matches(realval, list[i]) == 0/*匹配*/) {
 			*p_err = 0;
-			return i;
+			return i;/*返回匹配对应的索引*/
 		}
 	}
 
+	/*没有找到，报错，指明提供的列表均没有被匹配*/
 	fprintf(stderr, "Error: argument of \"%s\" must be one of ", msg);
 	for (i = 0; i < len; i++)
 		if (list[i])
@@ -1783,6 +1784,7 @@ bool parse_on_off(const char *msg, const char *realval, int *p_err)
 {
 	static const char * const values_on_off[] = { "off", "on" };
 
+	/*匹配"off","on"中任意一个，如不匹配，报错*/
 	return parse_one_of(msg, realval, values_on_off, ARRAY_SIZE(values_on_off), p_err);
 }
 
@@ -1801,8 +1803,9 @@ int parse_mapping_gen(int *argcp, char ***argvp,
 
 		if (!colon)
 			break;
-		*colon = '\0';
+		*colon = '\0';/*接':'进行拆分*/
 
+		/*argv转字数key*/
 		if (key_cb(&key, *argv)) {
 			ret = 1;
 			break;
@@ -1822,15 +1825,18 @@ int parse_mapping_gen(int *argcp, char ***argvp,
 
 static int parse_mapping_num(__u32 *keyp, const char *key)
 {
+	/*转为数字*/
 	return get_u32(keyp, key, 0);
 }
 
 int parse_mapping_num_all(__u32 *keyp, const char *key)
 {
 	if (matches(key, "all") == 0) {
+		/*如为'all'，则key置为全1*/
 		*keyp = (__u32) -1;
 		return 0;
 	}
+	/*将key转为数字*/
 	return parse_mapping_num(keyp, key);
 }
 

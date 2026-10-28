@@ -78,7 +78,7 @@ static int dcb_get_attribute_attr_ieee_cb(const struct nlattr *attr, void *data)
 static int dcb_get_attribute_attr_cb(const struct nlattr *attr, void *data)
 {
 	if (mnl_attr_get_type(attr) != DCB_ATTR_IEEE)
-		return MNL_CB_OK;
+		return MNL_CB_OK;/*只取DCB_ATTR_IEEE属性*/
 
 	return mnl_attr_parse_nested(attr, dcb_get_attribute_attr_ieee_cb, data);
 }
@@ -158,27 +158,28 @@ static struct nlmsghdr *dcb_prepare(struct dcb *dcb, const char *dev,
 
 	nlh = mnlu_msg_prepare(dcb->buf, nlmsg_type, NLM_F_REQUEST | NLM_F_ACK,
 			       &dcbm, sizeof(dcbm));
-	mnl_attr_put_strz(nlh, DCB_ATTR_IFNAME, dev);
+	mnl_attr_put_strz(nlh, DCB_ATTR_IFNAME, dev);/*指定设备名称*/
 	return nlh;
 }
 
 static int __dcb_get_attribute(struct dcb *dcb, int command,
 			       const char *dev, int attr,
 			       void **payload_p, __u16 *payload_len_p,
-			       int (*get_attribute_cb)(const struct nlmsghdr *nlh,
+			       int (*get_attribute_cb/*属性获取回调*/)(const struct nlmsghdr *nlh,
 						       void *data))
 {
 	struct dcb_get_attribute ga;
 	struct nlmsghdr *nlh;
 	int ret;
 
-	nlh = dcb_prepare(dcb, dev, RTM_GETDCB, command);
+	nlh = dcb_prepare(dcb, dev, RTM_GETDCB, command/*子命令*/);
 
 	ga = (struct dcb_get_attribute) {
 		.dcb = dcb,
 		.attr = attr,
 		.payload = NULL,
 	};
+	/*netlink通信，并调回调获取属性*/
 	ret = dcb_talk(dcb, nlh, get_attribute_cb, &ga);
 	if (ret) {
 		perror("Attribute read");
@@ -389,7 +390,7 @@ void dcb_print_named_array(const char *json_name, const char *fp_name,
 	close_json_array(PRINT_JSON, json_name);
 }
 
-int dcb_parse_mapping(const char *what_key, __u32 key, __u32 max_key,
+int dcb_parse_mapping(const char *what_key, __u32 key, __u32 max_key/*key的最大数*/,
 		      const char *what_value, __u64 value, __u64 max_value,
 		      void (*set_array)(__u32 index, __u64 value, void *data),
 		      void *set_array_data)
@@ -409,9 +410,11 @@ int dcb_parse_mapping(const char *what_key, __u32 key, __u32 max_key,
 	}
 
 	if (is_all) {
+		/*在set_array_data中为每一个key，设置为value*/
 		for (key = 0; key <= max_key; key++)
 			set_array(key, value, set_array_data);
 	} else {
+		/*在set_array_data中将key，设置为value*/
 		set_array(key, value, set_array_data);
 	}
 
@@ -422,7 +425,7 @@ void dcb_set_u8(__u32 key, __u64 value, void *data)
 {
 	__u8 *array = data;
 
-	array[key] = value;
+	array[key] = value;/*按下标设置(u8类型）*/
 }
 
 void dcb_set_u32(__u32 key, __u64 value, void *data)
@@ -459,6 +462,7 @@ int dcb_cmd_parse_dev(struct dcb *dcb, int argc, char **argv,
 		NEXT_ARG_FWD();
 		return and_then(dcb, dev, argc, argv);
 	} else {
+		/*必须指定设备*/
 		fprintf(stderr, "Expected `dev DEV', not `%s'", *argv);
 		help();
 		return -EINVAL;
@@ -496,6 +500,7 @@ static int dcb_cmd(struct dcb *dcb, int argc, char **argv)
 	} else if (matches(*argv, "maxrate") == 0) {
 		return dcb_cmd_maxrate(dcb, argc - 1, argv + 1);
 	} else if (matches(*argv, "pfc") == 0) {
+		/*pfc配置*/
 		return dcb_cmd_pfc(dcb, argc - 1, argv + 1);
 	}
 
@@ -602,7 +607,7 @@ int main(int argc, char **argv)
 	if (batch_file)
 		err = dcb_batch(dcb, batch_file, force);
 	else
-		err = dcb_cmd(dcb, argc, argv);
+		err = dcb_cmd(dcb, argc, argv);/*dcb命令解析*/
 
 	if (err) {
 		ret = EXIT_FAILURE;
